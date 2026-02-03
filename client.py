@@ -1,46 +1,43 @@
 import requests
 import plistlib
+import hashlib
+import time
 
 class RePanzaClient:
     def __init__(self, session_id):
         self.session_id = session_id
-        # URL per il Game Server del Mondo 327
         self.base_url = "https://lx-game.lordsandknights.com/XYRALITY/WebObjects/BKGameServer-327.woa/wa/PlayerAction"
 
     @staticmethod
     def auto_login(email, password_hash):
-        """Login che emula esattamente la richiesta catturata dal browser"""
+        """Login con mirroring browser e ID dispositivo rigenerato"""
         login_url = "https://login.lordsandknights.com/XYRALITY/WebObjects/BKLoginServer.woa/wa/LoginAction/checkValidLoginBrowser"
         
-        # Dati estratti dalla tua --data-raw
-        # Nota: worldId nel tuo curl era 'null', ma noi forziamo '327' per entrare nel mondo giusto
+        # Generiamo un deviceId unico basato sulla tua email per costanza
+        bot_device_id = hashlib.sha256(f"re-panza-{email}".encode()).hexdigest()
+        
         payload = {
             'login': email,
             'password': password_hash,
             'worldId': '327',
             'logoutUrl': 'http://lordsandknights.com/',
-            'deviceId': 'f5c411a2d7b216ecf64213eb9b62fb77d27fe73fa398d94766c547d553cd05fd'
+            'deviceId': bot_device_id
         }
         
-        # Header estratti esattamente dal tuo comando curl
         headers = {
             'Accept': 'application/x-bplist',
-            'Accept-Language': 'it',
             'Content-Type': 'application/x-www-form-urlencoded',
             'Origin': 'https://www.lordsandknights.com',
             'Referer': 'https://www.lordsandknights.com/',
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Mobile Safari/537.36',
-            'XYClient-Capabilities': 'base,fortress,city,partialTransits,starterpack,requestInformation,partialUpdate,regions,metropolis',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
             'XYClient-Client': 'lk_b_3',
-            'XYClient-Loginclient': 'Chrome',
-            'XYClient-Loginclientversion': '10.8.0',
             'XYClient-Platform': 'browser',
-            'XYClient-PlatformLanguage': 'it'
+            'XYClient-Loginclient': 'Chrome',
+            'XYClient-Loginclientversion': '10.8.0'
         }
 
         try:
-            print(f"📡 Tentativo Login Mirroring: {email}...")
-            # Invio della richiesta POST con i parametri esatti
+            print(f"📡 Tentativo Login Bot-ID: {email}...")
             response = requests.post(login_url, data=payload, headers=headers, timeout=15)
             
             if response.status_code == 200:
@@ -48,20 +45,19 @@ class RePanzaClient:
                 sid = data.get('sessionID')
                 
                 if sid:
-                    print("✅ LOGIN SUCCESSO! Sessione clonata correttamente.")
+                    print("✅ LOGIN SUCCESSO!")
                     return RePanzaClient(sid)
                 else:
-                    print(f"❌ Login rifiutato: {data.get('localized', 'Credenziali o DeviceID non validi')}")
+                    # Se fallisce qui con quell'hash lungo, il problema è l'hash stesso
+                    print(f"❌ Rifiutato dal server: {data.get('localized', 'Credenziali non valide')}")
                     print(f"DEBUG: {data}")
-            else:
-                print(f"❌ Errore Server {response.status_code}")
             return None
         except Exception as e:
-            print(f"💥 Errore critico: {e}")
+            print(f"💥 Errore: {e}")
             return None
 
     def fetch_rankings(self, offset=0, limit=50):
-        """Recupera la classifica"""
+        """Recupera la classifica Mondo 327"""
         params = {'sessionID': self.session_id, 'offset': offset, 'limit': limit}
         headers = {'Accept': 'application/x-bplist', 'User-Agent': 'lk_b_3'}
         try:
