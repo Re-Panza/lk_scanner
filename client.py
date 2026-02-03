@@ -9,37 +9,34 @@ class RePanzaClient:
 
     @staticmethod
     def auto_login(email, password_hash):
-        """Effettua il login usando il formato form-data (standard per il login server)"""
-        login_url = "https://login.lordsandknights.com/XYRALITY/WebObjects/BKLoginServer.woa/wa/LoginAction/checkValidLoginBrowser"
+        """Effettua il login usando l'endpoint Mobile (più affidabile del Browser)"""
+        # CAMBIO FONDAMENTALE: Usiamo authenticateUser invece di checkValidLoginBrowser
+        login_url = "https://login.lordsandknights.com/XYRALITY/WebObjects/BKLoginServer.woa/wa/LoginAction/authenticateUser"
         
-        # Inviamo i dati come un normale form (chiave=valore)
-        # Questo risolve l'errore "Insufficient parameters" visto nei log
         payload = {
             'login': email,
             'password': password_hash,
             'worldId': '327',
-            'deviceId': 're-panza-brain-v1'
+            'deviceId': 're-panza-brain-v1',
+            'apiVersion': '1.0' # Parametro spesso richiesto dall'endpoint mobile
         }
         
         headers = {
             'Accept': 'application/x-bplist',
-            'User-Agent': 'LordsAndKnights/9.4.2 (iPhone; iOS 16.0; Scale/3.00)'
+            'User-Agent': 'LordsAndKnights/9.4.2 (iPhone; iOS 16.0; Scale/3.00)',
+            'Content-Type': 'application/x-www-form-urlencoded'
         }
 
         try:
-            print(f"📡 Tentativo di login (form-mode): {email}...")
-            # Usiamo data=payload per inviare i parametri nel corpo della POST come form-data
+            print(f"📡 Tentativo di login (Mobile Auth): {email}...")
             response = requests.post(login_url, data=payload, headers=headers, timeout=15)
             
-            print(f"DEBUG: HTTP Status {response.status_code}")
-            
+            # Se la risposta è 200, proviamo a leggere il plist
             if response.status_code == 200:
-                # Anche se inviamo form-data, il server risponde in bplist
                 try:
                     data = plistlib.loads(response.content)
                 except Exception:
-                    # Fallback nel caso la risposta non sia un plist valido
-                    print("❌ Errore nella decodifica della risposta del server.")
+                    print(f"❌ Errore decodifica risposta: {response.text[:100]}")
                     return None
 
                 sid = data.get('sessionID')
@@ -48,11 +45,12 @@ class RePanzaClient:
                     print("✅ Login Successo! SessionID recuperato.")
                     return RePanzaClient(sid)
                 else:
-                    # Mostra l'errore specifico restituito da Xyrality
-                    print(f"❌ Login rifiutato: {data.get('faultString', 'Credenziali errate')}")
+                    # Se non c'è sessionID, stampiamo l'errore esatto
+                    print(f"❌ Login rifiutato: {data.get('faultString', 'Errore generico')}")
+                    # Questo debug ci dirà se dobbiamo cambiare ancora qualcosa
                     print(f"DEBUG RESPONSE: {data}")
             else:
-                print(f"❌ Errore Server {response.status_code}: {response.text}")
+                print(f"❌ Errore Server {response.status_code}")
                 
             return None
         except Exception as e:
@@ -73,7 +71,6 @@ class RePanzaClient:
         }
         
         try:
-            # Richiesta GET per ottenere i dati della classifica
             response = requests.get(f"{self.base_url}/rankings", params=params, headers=headers, timeout=15)
             if response.status_code == 200:
                 return plistlib.loads(response.content)
