@@ -1,53 +1,79 @@
 import requests
 import plistlib
-import time
 
 class RePanzaClient:
     def __init__(self, session_id):
         self.session_id = session_id
-        # Backend 3 per Mondo 327
-        self.base_url = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-IT-15.woa/wa/QueryAction"
-        self.headers = {
-            'Accept': 'application/x-bplist',
-            'XYClient-Client': 'lk_b_3',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
-        self.cookies = {'sessionID': self.session_id}
+        self.base_url = "https://lx-game.lordsandknights.com/XYRALITY/WebObjects/BKGameServer-327.woa/wa/PlayerAction"
 
     @staticmethod
     def auto_login(email, password_hash):
-        """Effettua il login e recupera il sessionID"""
+        """Effettua il login inviando i dati nel formato nativo bplist"""
         login_url = "https://login.lordsandknights.com/XYRALITY/WebObjects/BKLoginServer.woa/wa/LoginAction/checkValidLoginBrowser"
-        payload = {
+        
+        # Prepariamo il payload per il server di login
+        payload_dict = {
             'login': email,
             'password': password_hash,
             'worldId': '327',
             'deviceId': 're-panza-brain-v1'
         }
+        
+        # Trasformiamo il dizionario nel formato binario bplist
         try:
-            response = requests.post(login_url, data=payload, timeout=15)
+            payload_plist = plistlib.dumps(payload_dict)
+        except Exception as e:
+            print(f"❌ Errore nella creazione del plist: {e}")
+            return None
+        
+        headers = {
+            'Content-Type': 'application/x-bplist',
+            'Accept': 'application/x-bplist',
+            'User-Agent': 'LordsAndKnights/9.4.2 (iPhone; iOS 16.0; Scale/3.00)'
+        }
+
+        try:
+            print(f"📡 Tentativo di login: {email}...")
+            response = requests.post(login_url, data=payload_plist, headers=headers, timeout=15)
+            
+            print(f"DEBUG: HTTP Status {response.status_code}")
+            
             if response.status_code == 200:
+                # Decodifichiamo la risposta bplist
                 data = plistlib.loads(response.content)
                 sid = data.get('sessionID')
+                
                 if sid:
+                    print("✅ Login Successo! SessionID generato.")
                     return RePanzaClient(sid)
+                else:
+                    # Se il login fallisce, stampiamo il motivo restituito dal server
+                    print(f"❌ Login fallito dal server: {data.get('faultString', 'Motivo sconosciuto')}")
+                    print(f"DEBUG RESPONSE: {data}")
+            else:
+                print(f"❌ Errore Server {response.status_code}: {response.text}")
+                
             return None
-        except:
+        except Exception as e:
+            print(f"💥 Errore critico di connessione: {e}")
             return None
 
     def fetch_rankings(self, offset=0, limit=50):
-        """Scarica un blocco di classifica del mondo 327"""
-        payload = {
-            'offset': str(offset),
-            'limit': str(limit),
-            'type': '(player_rank)',
-            'sortBy': '(row.asc)',
-            'worldId': '327'
+        """Recupera la classifica usando il sessionID"""
+        params = {
+            'sessionID': self.session_id,
+            'offset': offset,
+            'limit': limit
         }
+        
+        headers = {'Accept': 'application/x-bplist'}
+        
         try:
-            res = requests.post(f"{self.base_url}/playerRanks", headers=self.headers, cookies=self.cookies, data=payload)
-            if res.status_code == 200:
-                return plistlib.loads(res.content)
+            # Nota: qui usiamo GET come da standard delle API di gioco per i ranking
+            response = requests.get(f"{self.base_url}/rankings", params=params, headers=headers, timeout=15)
+            if response.status_code == 200:
+                return plistlib.loads(response.content)
             return None
-        except:
+        except Exception as e:
+            print(f"❌ Errore nel recupero classifica: {e}")
             return None
