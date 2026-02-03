@@ -9,19 +9,26 @@ class RePanzaClient:
 
     @staticmethod
     def auto_login(email, password_hash):
-        """Effettua il login usando l'endpoint Mobile con TUTTI i parametri richiesti"""
+        """Effettua il login simulando un device reale completo"""
         login_url = "https://login.lordsandknights.com/XYRALITY/WebObjects/BKLoginServer.woa/wa/LoginAction/authenticateUser"
         
-        # FIX: Aggiunti 'clientVersion', 'platform' e 'UDID' che mancavano prima
+        # FIX: Aggiunti TUTTI i parametri che un vero iPhone invia
+        # Senza 'deviceType' o 'bundleId', il server rifiuta la connessione
         payload = {
             'login': email,
             'password': password_hash,
             'worldId': '327',
             'deviceId': 're-panza-brain-v1',
-            'UDID': 're-panza-brain-v1',     # Spesso richiesto come duplicato del deviceId
-            'platform': 'iPhone',            # Fondamentale per l'endpoint mobile
-            'clientVersion': '9.4.2',        # Fondamentale: versione dell'app simulata
-            'apiVersion': '1.0'
+            'UDID': 're-panza-brain-v1',
+            'platform': 'iPhone',
+            'clientVersion': '9.4.2',
+            'apiVersion': '1.0',
+            # --- NUOVI PARAMETRI AGGIUNTI ---
+            'deviceType': 'iPhone14,2',          # Modello specifico (iPhone 13 Pro)
+            'osVersion': '16.0',                 # Versione iOS
+            'bundleId': 'com.xyrality.lordsandknights', # Identificativo app
+            'locale': 'it_IT',                   # Lingua e regione
+            'language': 'it'                     # Lingua
         }
         
         headers = {
@@ -31,35 +38,35 @@ class RePanzaClient:
         }
 
         try:
-            print(f"📡 Tentativo di login (Mobile Auth Completo): {email}...")
+            print(f"📡 Login Mobile Full-Data: {email}...")
             response = requests.post(login_url, data=payload, headers=headers, timeout=15)
             
             if response.status_code == 200:
                 try:
                     data = plistlib.loads(response.content)
                 except Exception:
-                    print(f"❌ Errore decodifica risposta: {response.text[:100]}")
+                    print(f"❌ Errore decodifica: {response.text[:100]}")
                     return None
 
                 sid = data.get('sessionID')
                 
                 if sid:
-                    print("✅ Login Successo! SessionID recuperato.")
+                    print("✅ Login Successo! SessionID generato.")
                     return RePanzaClient(sid)
                 else:
-                    # Se fallisce, stampiamo l'errore esatto
-                    print(f"❌ Login rifiutato: {data.get('faultString', 'Errore generico')}")
-                    print(f"DEBUG RESPONSE: {data}")
+                    # Se fallisce ancora, stampiamo il debug completo
+                    print(f"❌ Login rifiutato: {data.get('faultString', 'Errore')}")
+                    print(f"DEBUG: {data}")
             else:
-                print(f"❌ Errore Server {response.status_code}")
+                print(f"❌ Server Error {response.status_code}")
                 
             return None
         except Exception as e:
-            print(f"💥 Errore critico durante il login: {e}")
+            print(f"💥 Errore critico: {e}")
             return None
 
     def fetch_rankings(self, offset=0, limit=50):
-        """Recupera la classifica usando il sessionID"""
+        """Recupera la classifica"""
         params = {
             'sessionID': self.session_id,
             'offset': offset,
@@ -76,8 +83,8 @@ class RePanzaClient:
             if response.status_code == 200:
                 return plistlib.loads(response.content)
             else:
-                print(f"❌ Errore recupero classifica: {response.status_code}")
+                print(f"❌ Errore classifica: {response.status_code}")
                 return None
         except Exception as e:
-            print(f"❌ Errore di rete durante il fetch: {e}")
+            print(f"❌ Errore fetch: {e}")
             return None
