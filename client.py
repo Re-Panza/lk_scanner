@@ -1,6 +1,5 @@
 import requests
 import plistlib
-import hashlib
 
 class RePanzaClient:
     def __init__(self, session_id):
@@ -9,14 +8,14 @@ class RePanzaClient:
 
     @staticmethod
     def auto_login(email, password_hash):
-        """Login che clona l'identità del tuo browser per accettare l'MD5"""
+        """Login che emula l'identità del tuo browser per accettare l'MD5 permanente"""
         login_url = "https://login.lordsandknights.com/XYRALITY/WebObjects/BKLoginServer.woa/wa/LoginAction/checkValidLoginBrowser"
         
-        # Usiamo il deviceId del tuo curl per massima coerenza
+        # Parametri estratti dal tuo curl per bypassare i controlli di sicurezza
         payload = {
             'login': email,
             'password': password_hash,
-            'worldId': '327',
+            'worldId': '337', # Mondo IT-15/337 rilevato dai log
             'deviceId': 'f5c411a2d7b216ecf64213eb9b62fb77d27fe73fa398d94766c547d553cd05fd',
             'apiVersion': '1.0',
             'platform': 'browser'
@@ -41,9 +40,10 @@ class RePanzaClient:
                 sid = data.get('sessionID')
                 
                 if sid:
-                    print("✅ LOGIN SUCCESSO!")
+                    print("✅ LOGIN SUCCESSO! Sessione avviata.")
                     return RePanzaClient(sid)
                 else:
+                    # Se ricevi ancora errore qui, l'MD5 nei Secrets è sbagliato
                     print(f"❌ Rifiutato dal server: {data.get('localized', 'Credenziali non valide')}")
             return None
         except Exception as e:
@@ -51,7 +51,7 @@ class RePanzaClient:
             return None
 
     def fetch_rankings(self, offset=0, limit=50):
-        """Recupera la classifica"""
+        """Recupera la classifica Mondo 327"""
         params = {'sessionID': self.session_id, 'offset': offset, 'limit': limit}
         headers = {'Accept': 'application/x-bplist', 'User-Agent': 'lk_b_3'}
         try:
