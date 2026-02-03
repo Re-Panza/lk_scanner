@@ -9,11 +9,10 @@ class RePanzaClient:
 
     @staticmethod
     def auto_login(email, password_raw):
-        """
-        Calcola l'hash MD5 della password reale. 
-        Questo metodo è l'unico stabile per i bot di L&K.
-        """
+        """Genera l'hash corretto dalla password reale per il Mondo 327"""
+        # Creazione hash MD5 dalla password 'lkclassifica'
         md5_password = hashlib.md5(password_raw.encode('utf-8')).hexdigest()
+        
         login_url = "https://login.lordsandknights.com/XYRALITY/WebObjects/BKLoginServer.woa/wa/LoginAction/checkValidLoginBrowser"
         
         payload = {
@@ -36,7 +35,7 @@ class RePanzaClient:
 
         try:
             print(f"📡 Tentativo Login per {email}...")
-            # Timeout esteso per evitare interruzioni di rete
+            # Timeout a 30s per evitare errori di rete
             response = requests.post(login_url, data=payload, headers=headers, timeout=30)
             
             if response.status_code == 200:
@@ -46,7 +45,7 @@ class RePanzaClient:
                     print("✅ LOGIN SUCCESSO!")
                     return RePanzaClient(sid)
                 else:
-                    print(f"❌ Errore Server: {data.get('localized', 'Dati non validi')}")
+                    print(f"❌ Errore Server: {data.get('localized', 'Credenziali errate')}")
             return None
         except Exception as e:
             print(f"💥 Errore tecnico: {e}")
