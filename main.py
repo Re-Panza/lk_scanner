@@ -6,6 +6,7 @@ import requests
 from client import RePanzaClient
 
 # --- CONFIGURAZIONE (Recuperata dai Secrets di GitHub) ---
+# Se i Secrets non sono ancora impostati, i valori saranno None
 EMAIL = os.getenv('LK_EMAIL')
 PASS_HASH = os.getenv('LK_PASS_HASH')
 TG_TOKEN = os.getenv('TELEGRAM_TOKEN')
@@ -13,7 +14,7 @@ TG_ID = os.getenv('TELEGRAM_CHAT_ID')
 DATABASE_FILE = "database_classificamondo327.json"
 
 def invia_telegram(msg):
-    """Invia una notifica sul tuo cellulare tramite il Bot Telegram"""
+    """Invia una notifica solo se il token e l'ID sono configurati"""
     if TG_TOKEN and TG_ID:
         url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
         payload = {
@@ -25,15 +26,23 @@ def invia_telegram(msg):
             requests.post(url, json=payload, timeout=10)
         except Exception as e:
             print(f"Errore nell'invio del messaggio Telegram: {e}")
+    else:
+        # Se Telegram non è configurato, stampiamo solo nel log di GitHub
+        print(f"📢 [LOG TELEGRAM]: {msg}")
 
 def run_scan():
     print("🚀 Re Panza Brain: Avvio Scansione Totale Mondo 327...")
     
+    # Controllo di sicurezza: se mancano le credenziali base, non partiamo nemmeno
+    if not EMAIL or not PASS_HASH:
+        print("🚨 ERRORE: Mancano LK_EMAIL o LK_PASS_HASH nei Secrets di GitHub!")
+        return
+
     # 1. TENTATIVO DI LOGIN
     bot = RePanzaClient.auto_login(EMAIL, PASS_HASH)
     
     if not bot:
-        errore_msg = "🚨 *RE PANZA ALERT*\nLogin fallito! L'account esca potrebbe essere bannato o le credenziali nei Secrets sono errate."
+        errore_msg = "🚨 *RE PANZA ALERT*\nLogin fallito! Controlla l'account esca o l'Hash della password."
         print(errore_msg)
         invia_telegram(errore_msg)
         return
@@ -48,14 +57,14 @@ def run_scan():
             print(f"📡 Scaricando classifica: offset {offset}...")
             data = bot.fetch_rankings(offset=offset, limit=limit)
             
-            # Controllo se abbiamo dati validi
+            # Controllo validità risposta
             if not data or 'playerRanks' not in data:
                 print("⚠️ Risposta del server non valida o vuota.")
                 break
             
             giocatori_ricevuti = data['playerRanks']
             
-            # Se la lista è vuota, abbiamo raggiunto la fine della classifica
+            # Se la lista è vuota, fine della classifica
             if len(giocatori_ricevuti) == 0:
                 print("🏁 Fine classifica raggiunta con successo.")
                 break
@@ -68,13 +77,11 @@ def run_scan():
                     'rank': p.get('rank')
                 })
             
-            # Incrementiamo l'offset per il prossimo blocco
+            # Incremento offset
             offset += limit
             
-            # PAUSA VARIABILE: Aspetta un tempo casuale tra 1.2 e 2.8 secondi
-            # Questo simula un comportamento umano che non clicca con precisione millimetrica
-            attesa = random.uniform(1.2, 2.8)
-            time.sleep(attesa)
+            # Attesa variabile per simulare comportamento umano
+            time.sleep(random.uniform(1.2, 2.8))
 
         # 3. SALVATAGGIO DATI
         if all_players:
@@ -90,10 +97,9 @@ def run_scan():
             
             success_msg = f"✅ *Scan Completato*\nMondo: 327\nGiocatori salvati: {len(all_players)}\nDatabase aggiornato."
             print(success_msg)
-            # Inviamo la notifica di successo solo se è il primo scan o se vuoi conferma
-            # invia_telegram(success_msg) 
+            invia_telegram(success_msg) 
         else:
-            invia_telegram("⚠️ Scan terminato, ma non è stato possibile recuperare alcun giocatore.")
+            invia_telegram("⚠️ Scan terminato, ma nessun giocatore trovato.")
 
     except Exception as e:
         errore_generico = f"❌ *Errore critico durante lo scan*:\n`{str(e)}`"
