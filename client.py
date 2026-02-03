@@ -9,16 +9,19 @@ class RePanzaClient:
 
     @staticmethod
     def auto_login(email, password_hash):
-        """Effettua il login usando l'endpoint Mobile (più affidabile del Browser)"""
-        # CAMBIO FONDAMENTALE: Usiamo authenticateUser invece di checkValidLoginBrowser
+        """Effettua il login usando l'endpoint Mobile con TUTTI i parametri richiesti"""
         login_url = "https://login.lordsandknights.com/XYRALITY/WebObjects/BKLoginServer.woa/wa/LoginAction/authenticateUser"
         
+        # FIX: Aggiunti 'clientVersion', 'platform' e 'UDID' che mancavano prima
         payload = {
             'login': email,
             'password': password_hash,
             'worldId': '327',
             'deviceId': 're-panza-brain-v1',
-            'apiVersion': '1.0' # Parametro spesso richiesto dall'endpoint mobile
+            'UDID': 're-panza-brain-v1',     # Spesso richiesto come duplicato del deviceId
+            'platform': 'iPhone',            # Fondamentale per l'endpoint mobile
+            'clientVersion': '9.4.2',        # Fondamentale: versione dell'app simulata
+            'apiVersion': '1.0'
         }
         
         headers = {
@@ -28,10 +31,9 @@ class RePanzaClient:
         }
 
         try:
-            print(f"📡 Tentativo di login (Mobile Auth): {email}...")
+            print(f"📡 Tentativo di login (Mobile Auth Completo): {email}...")
             response = requests.post(login_url, data=payload, headers=headers, timeout=15)
             
-            # Se la risposta è 200, proviamo a leggere il plist
             if response.status_code == 200:
                 try:
                     data = plistlib.loads(response.content)
@@ -45,9 +47,8 @@ class RePanzaClient:
                     print("✅ Login Successo! SessionID recuperato.")
                     return RePanzaClient(sid)
                 else:
-                    # Se non c'è sessionID, stampiamo l'errore esatto
+                    # Se fallisce, stampiamo l'errore esatto
                     print(f"❌ Login rifiutato: {data.get('faultString', 'Errore generico')}")
-                    # Questo debug ci dirà se dobbiamo cambiare ancora qualcosa
                     print(f"DEBUG RESPONSE: {data}")
             else:
                 print(f"❌ Errore Server {response.status_code}")
