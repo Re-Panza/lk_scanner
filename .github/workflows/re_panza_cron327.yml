@@ -23,7 +23,7 @@ jobs:
         run: pip install requests
 
       - name: Run Scanner
-        run: python main.py
+        run: python test_login.py
         env:
           LK_EMAIL: ${{ secrets.LK_EMAIL }}
           LK_PASS_HASH: ${{ secrets.LK_PASS_HASH }}
