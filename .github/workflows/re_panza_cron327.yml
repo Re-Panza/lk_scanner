@@ -2,14 +2,14 @@ name: Re Panza Brain - Daily Scan 327
 
 on:
   schedule:
-    - cron: '0 3 * * *'
-  workflow_dispatch:
+    - cron: '0 3 * * *'  # Esecuzione automatica ogni notte alle 03:00 UTC
+  workflow_dispatch:      # Permette il lancio manuale dalla scheda Actions
 
 jobs:
   scan:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write    # Necessario per permettere al bot di salvare il JSON nella repo
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -30,10 +30,17 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
-      - name: Commit and Push
+      - name: Commit and Push changes
         run: |
           git config --local user.email "actions@github.com"
           git config --local user.name "RePanzaBot"
-          git add database_classificamondo327.json
-          git commit -m "📊 Update Classifica Mondo 327 [$(date)]" || echo "No changes"
-          git push
+          
+          # Verifica se lo script ha effettivamente creato il file database
+          if [ -f database_classificamondo327.json ]; then
+            git add database_classificamondo327.json
+            git commit -m "📊 Auto-update: Classifica Mondo 327 [$(date)]" || echo "Nessuna modifica da salvare"
+            git push
+          else
+            echo "⚠️ Attenzione: Il file database_classificamondo327.json non è stato trovato."
+            echo "Probabile errore di login o classifica vuota. Controlla i log dello step precedente."
+          fi
