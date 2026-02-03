@@ -1,6 +1,7 @@
 import json
 import os
 import time
+import random
 import requests
 from client import RePanzaClient
 
@@ -70,8 +71,10 @@ def run_scan():
             # Incrementiamo l'offset per il prossimo blocco
             offset += limit
             
-            # Pausa per simulare comportamento umano e prevenire ban
-            time.sleep(1.2)
+            # PAUSA VARIABILE: Aspetta un tempo casuale tra 1.2 e 2.8 secondi
+            # Questo simula un comportamento umano che non clicca con precisione millimetrica
+            attesa = random.uniform(1.2, 2.8)
+            time.sleep(attesa)
 
         # 3. SALVATAGGIO DATI
         if all_players:
@@ -85,10 +88,10 @@ def run_scan():
             with open(DATABASE_FILE, "w", encoding="utf-8") as f:
                 json.dump(db_content, f, indent=4, ensure_ascii=False)
             
-            success_msg = f"✅ *Scan Completato*\nMondo: 327\nGiocatori salvati: {len(all_players)}\nDatabase aggiornato con successo."
+            success_msg = f"✅ *Scan Completato*\nMondo: 327\nGiocatori salvati: {len(all_players)}\nDatabase aggiornato."
             print(success_msg)
-            # Inviamo notifica solo se lo scan è corposo (opzionale)
-            if offset == 0: invia_telegram(success_msg) 
+            # Inviamo la notifica di successo solo se è il primo scan o se vuoi conferma
+            # invia_telegram(success_msg) 
         else:
             invia_telegram("⚠️ Scan terminato, ma non è stato possibile recuperare alcun giocatore.")
 
