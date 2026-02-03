@@ -4,51 +4,53 @@ import plistlib
 class RePanzaClient:
     def __init__(self, session_id):
         self.session_id = session_id
+        # URL per il Game Server del Mondo 327
         self.base_url = "https://lx-game.lordsandknights.com/XYRALITY/WebObjects/BKGameServer-327.woa/wa/PlayerAction"
 
     @staticmethod
     def auto_login(email, password_hash):
-        """Login con emulazione completa parametri Browser"""
-        login_url = "https://login.lordsandknights.com/XYRALITY/WebObjects/BKLoginServer.woa/wa/LoginAction/checkValidLoginBrowser"
+        """Login tramite endpoint standard per massimizzare la compatibilità"""
+        # Utilizziamo l'endpoint di login più semplice disponibile
+        login_url = "https://login.lordsandknights.com/XYRALITY/WebObjects/BKLoginServer.woa/wa/LoginAction/login"
         
-        # Aggiunti parametri di identità client spesso richiesti dai server LX
-        payload_dict = {
+        payload = {
             'login': email,
             'password': password_hash,
             'worldId': '327',
             'deviceId': 're-panza-brain-v1',
-            'clientVersion': '9.4.2',
-            'platform': 'browser',
-            'language': 'it',
-            'timezone': 'Europe/Rome'
+            'apiVersion': '1.0'
         }
-        
-        # Generazione bplist binario come richiesto dal server
-        payload_xml = plistlib.dumps(payload_dict)
         
         headers = {
             'Accept': 'application/x-bplist',
-            'Content-Type': 'application/x-apple-plist',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'LordsAndKnights/9.4.2 (iPhone; iOS 16.0; Scale/3.00)'
         }
 
         try:
-            print(f"📡 Tentativo Login (Final Mode): {email}...")
-            response = requests.post(login_url, data=payload_xml, headers=headers, timeout=15)
+            print(f"📡 Tentativo Login (Legacy Mode): {email}...")
+            # Invio dati come form-data standard
+            response = requests.post(login_url, data=payload, headers=headers, timeout=15)
             
             if response.status_code == 200:
-                data = plistlib.loads(response.content)
+                try:
+                    data = plistlib.loads(response.content)
+                except Exception:
+                    print(f"❌ Errore decodifica: {response.text[:100]}")
+                    return None
+
                 sid = data.get('sessionID')
                 
                 if sid:
-                    print("✅ Login Successo!")
+                    print("✅ Login Successo! SessionID ottenuto.")
                     return RePanzaClient(sid)
                 else:
-                    # Log dettagliato per capire quale parametro viene ancora rifiutato
-                    print(f"❌ Login rifiutato: {data.get('localized', 'Dati non validi')}")
-                    print(f"DEBUG SERVER: {data}")
+                    # Log del motivo del rifiuto
+                    error_msg = data.get('localized', data.get('faultString', 'Credenziali o parametri errati'))
+                    print(f"❌ Login rifiutato: {error_msg}")
+                    print(f"DEBUG: {data}")
             else:
-                print(f"❌ Errore Server {response.status_code}")
+                print(f"❌ Server Error {response.status_code}")
                 
             return None
         except Exception as e:
@@ -58,7 +60,7 @@ class RePanzaClient:
     def fetch_rankings(self, offset=0, limit=50):
         """Recupera la classifica giocatori"""
         params = {'sessionID': self.session_id, 'offset': offset, 'limit': limit}
-        headers = {'Accept': 'application/x-bplist', 'User-Agent': 'LordsAndKnights/9.4.2'}
+        headers = {'Accept': 'application/x-bplist'}
         try:
             response = requests.get(f"{self.base_url}/rankings", params=params, headers=headers, timeout=15)
             if response.status_code == 200:
