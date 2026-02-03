@@ -10,8 +10,8 @@ class RePanzaClient:
     @staticmethod
     def auto_login(email, password_raw):
         """
-        Calcola l'MD5 internamente. Questo metodo è permanente e 
-        non scade come lo SHA-256 del browser.
+        Calcola l'hash MD5 della password reale. 
+        Questo metodo è l'unico stabile per i bot di L&K.
         """
         md5_password = hashlib.md5(password_raw.encode('utf-8')).hexdigest()
         login_url = "https://login.lordsandknights.com/XYRALITY/WebObjects/BKLoginServer.woa/wa/LoginAction/checkValidLoginBrowser"
@@ -35,18 +35,28 @@ class RePanzaClient:
         }
 
         try:
+            print(f"📡 Tentativo Login per {email}...")
+            # Timeout esteso per evitare interruzioni di rete
             response = requests.post(login_url, data=payload, headers=headers, timeout=30)
-            data = plistlib.loads(response.content)
-            if 'sessionID' in data:
-                return RePanzaClient(data['sessionID'])
+            
+            if response.status_code == 200:
+                data = plistlib.loads(response.content)
+                sid = data.get('sessionID')
+                if sid:
+                    print("✅ LOGIN SUCCESSO!")
+                    return RePanzaClient(sid)
+                else:
+                    print(f"❌ Errore Server: {data.get('localized', 'Dati non validi')}")
             return None
-        except Exception:
+        except Exception as e:
+            print(f"💥 Errore tecnico: {e}")
             return None
 
     def fetch_rankings(self, offset=0, limit=50):
         params = {'sessionID': self.session_id, 'offset': offset, 'limit': limit}
+        headers = {'Accept': 'application/x-bplist', 'User-Agent': 'lk_b_3'}
         try:
-            response = requests.get(f"{self.base_url}/rankings", params=params, timeout=20)
+            response = requests.get(f"{self.base_url}/rankings", params=params, headers=headers, timeout=20)
             return plistlib.loads(response.content) if response.status_code == 200 else None
         except:
             return None
