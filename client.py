@@ -21,7 +21,7 @@ class RePanzaClient:
         payload = {
             'login': email,
             'password': password_hash,
-            'worldId': 'null',
+            'worldId': '327',
             'deviceId': 're-panza-brain-v1'
         }
         try:
