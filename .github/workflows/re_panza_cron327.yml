@@ -2,45 +2,35 @@ name: Re Panza Brain - Daily Scan 327
 
 on:
   schedule:
-    - cron: '0 3 * * *'  # Esecuzione automatica ogni notte alle 03:00 UTC
-  workflow_dispatch:      # Permette il lancio manuale dalla scheda Actions
+    - cron: '0 4 * * *' # Parte da solo ogni mattina alle 04:00
+  workflow_dispatch: # Ti permette di farlo partire a mano quando vuoi
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write    # Necessario per permettere al bot di salvare il JSON nella repo
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.9'
 
       - name: Install dependencies
-        run: pip install requests
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright Browsers
+        run: |
+          # Questo scarica il browser Chrome reale dentro GitHub
+          playwright install chromium --with-deps
 
       - name: Run Scanner
-        run: python main.py
         env:
+          # Assicurati che questi nomi corrispondano ai tuoi Secrets
           LK_EMAIL: ${{ secrets.LK_EMAIL }}
-          LK_PASS_HASH: ${{ secrets.LK_PASS_HASH }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-
-      - name: Commit and Push changes
-        run: |
-          git config --local user.email "actions@github.com"
-          git config --local user.name "RePanzaBot"
-          
-          # Verifica se lo script ha effettivamente creato il file database
-          if [ -f database_classificamondo327.json ]; then
-            git add database_classificamondo327.json
-            git commit -m "📊 Auto-update: Classifica Mondo 327 [$(date)]" || echo "Nessuna modifica da salvare"
-            git push
-          else
-            echo "⚠️ Attenzione: Il file database_classificamondo327.json non è stato trovato."
-            echo "Probabile errore di login o classifica vuota. Controlla i log dello step precedente."
-          fi
+          LK_PASSWORD: ${{ secrets.LK_PASSWORD }} 
+          LK_DEVICE_ID: ${{ secrets.LK_DEVICE_ID }}
+        run: python main.py
