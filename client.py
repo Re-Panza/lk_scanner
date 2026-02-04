@@ -10,42 +10,51 @@ class RePanzaClient:
     @staticmethod
     def auto_login(email, password):
         with sync_playwright() as p:
-            # Usiamo un'identità browser standard per evitare blocchi
+            # Usiamo una finestra 1280x720 come quella dello screenshot
             browser = p.chromium.launch(headless=True)
-            context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            context = browser.new_context(viewport={'width': 1280, 'height': 720})
             page = context.new_page()
 
-            print(f"🌐 Caricamento pagina...")
-            # 'commit' è più veloce di 'networkidle' e previene i timeout sui caricamenti lenti
-            page.goto("https://www.lordsandknights.com/", wait_until="commit")
+            print(f"🌐 Caricamento Lords & Knights...")
+            page.goto("https://www.lordsandknights.com/", wait_until="networkidle")
             
             try:
-                # Aspettiamo il selettore email con più pazienza (30 secondi)
-                print("⏳ Cerco i campi di login (attesa max 30s)...")
-                email_field = page.wait_for_selector('input[type="email"], input[name="login"]', timeout=30000)
+                # Aspettiamo che la maschera di login sia pronta
+                print("⏳ Localizzazione campi di login in alto a destra...")
                 
-                if email_field:
-                    print(f"⌨️ Inserimento credenziali...")
-                    page.fill('input[type="email"], input[name="login"]', email)
-                    page.fill('input[type="password"]', password)
-                    
-                    # Clicchiamo il tasto login principale
-                    page.click('button[type="submit"], .login-button')
-                    
-                    print("⏳ Login effettuato. Controllo sessione...")
-                    time.sleep(10) # Tempo per il server di rispondere
+                # Usiamo i placeholder che vediamo nell'immagine: "Email" e "Password"
+                page.wait_for_selector('input[placeholder="Email"]', timeout=20000)
+                
+                print(f"⌨️ Scrittura credenziali...")
+                # Forziamo il click prima di scrivere per essere sicuri di avere il focus
+                page.click('input[placeholder="Email"]')
+                page.type('input[placeholder="Email"]', email, delay=100)
+                
+                page.click('input[placeholder="Password"]')
+                page.type('input[placeholder="Password"]', password, delay=100)
+                
+                print("🖱️ Click sul tasto LOG IN arancione...")
+                # Puntiamo al tasto LOG IN che vediamo nello screenshot
+                page.click('button:has-text("LOG IN"), .login-button, .button-login')
 
-                    cookies = context.cookies()
-                    session_id = next((c['value'] for c in cookies if c['name'] == 'sessionID'), None)
+                print("⏳ Attesa validazione (15s)...")
+                time.sleep(15)
 
-                    if session_id:
-                        print(f"✅ SESSIONE OK: {session_id[:8]}...")
-                        return RePanzaClient(session_id)
+                # Estrazione sessione dai cookie
+                cookies = context.cookies()
+                session_id = next((c['value'] for c in cookies if c['name'] == 'sessionID'), None)
+
+                if session_id:
+                    print(f"✅ SESSIONE CATTURATA: {session_id[:8]}...")
+                    return RePanzaClient(session_id)
+                
+                # Se non trova il cookie, facciamo un altro screenshot per vedere cosa è successo dopo il click
+                page.screenshot(path="debug_after_click.png")
+                print("❌ Login premuto ma sessione non trovata. Screenshot salvato.")
                 
             except Exception as e:
-                # Se fallisce, facciamo uno screenshot per capire cosa vede il bot (verrà salvato su GitHub)
                 page.screenshot(path="debug_login.png")
-                print(f"💥 Timeout o elemento non trovato. Screenshot salvato come debug_login.png")
+                print(f"💥 Errore durante l'inserimento: {e}")
             
             browser.close()
             return None
