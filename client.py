@@ -2,6 +2,8 @@ from playwright.sync_api import sync_playwright
 import time
 import os
 import requests
+import json
+import re
 
 class RePanzaClient:
     def __init__(self, session_id):
@@ -13,8 +15,8 @@ class RePanzaClient:
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
         if token and chat_id:
             try:
-                url = f"https://api.telegram.org/bot{token}/sendMessage"
-                requests.post(url, data={"chat_id": chat_id, "text": message}, timeout=5)
+                requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
+                            data={"chat_id": chat_id, "text": message}, timeout=5)
             except:
                 pass
 
@@ -22,21 +24,34 @@ class RePanzaClient:
     def auto_login(email, password):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            context = browser.new_context(viewport={'width': 1280, 'height': 720})
+            # User agent reale per evitare blocchi
+            context = browser.new_context(viewport={'width': 1280, 'height': 720}, 
+                                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
             page = context.new_page()
             
-            # Usiamo un dizionario mutabile per condividere i dati tra i thread
             capture = {"sid": None}
 
             def intercept_response(response):
-                # Cerchiamo il pacchetto login (o loginAction)
+                # Cerchiamo ovunque nel pacchetto login
                 if "login" in response.url and response.status == 200:
                     try:
+                        # 1. Controllo COOKIE (Memoria)
                         cookies = context.cookies()
-                        for cookie in cookies:
-                            if cookie['name'] == 'sessionID':
-                                capture["sid"] = cookie['value']
-                                # Non stampiamo qui per non sporcare il log, lo fa il main loop
+                        for c in cookies:
+                            if c['name'] == 'sessionID':
+                                capture["sid"] = c['value']
+                                return
+
+                        # 2. Controllo CORPO RISPOSTA (JSON)
+                        try:
+                            text = response.text()
+                            if "sessionID" in text:
+                                # Cerca "sessionID":"..." oppure "sessionID" : "..."
+                                match = re.search(r'sessionID["\s:]+([a-z0-9\-]+)', text)
+                                if match:
+                                    capture["sid"] = match.group(1)
+                        except:
+                            pass
                     except:
                         pass
 
@@ -44,7 +59,6 @@ class RePanzaClient:
             
             try:
                 print("🌐 Caricamento Lords & Knights...")
-                # Timeout aumentato per connessioni lente
                 page.goto("https://www.lordsandknights.com/", wait_until="networkidle", timeout=90000)
                 
                 page.fill('input[placeholder="Email"]', email)
@@ -56,14 +70,15 @@ class RePanzaClient:
                 page.wait_for_selector(selector_mondo, timeout=30000)
                 
                 print("🎯 Click su Italia VI...")
-                # Doppio metodo di click per massima sicurezza
-                page.locator(selector_mondo).first.click(force=True)
-                page.locator(selector_mondo).first.evaluate("node => node.click()")
-
-                # CICLO DI ATTESA (fino a 90 secondi)
+                # Triplo metodo di click per forzare l'ingresso
+                btn = page.locator(selector_mondo).first
+                btn.click(force=True)
+                time.sleep(1)
+                btn.evaluate("node => node.click()")
+                
                 print("📡 In ascolto per il sessionID...")
-                for i in range(90):
-                    # CONTROLLO VITTORIA: Se abbiamo il SID, usciamo subito!
+                # Attesa aumentata a 120s per i runner lenti di GitHub
+                for i in range(120):
                     if capture["sid"]:
                         sid_final = capture["sid"]
                         print(f"✅ SID CATTURATO AL SECONDO {i}: {sid_final[:10]}...")
@@ -74,7 +89,7 @@ class RePanzaClient:
                     if i % 10 == 0 and i > 0:
                         print(f"   ...attesa {i}s ...")
                 
-                print("❌ Timeout: SID non arrivato in 90 secondi.")
+                print("❌ Timeout: SID non arrivato.")
                 page.screenshot(path="debug_timeout.png")
                 
             except Exception as e:
