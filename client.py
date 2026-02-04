@@ -35,34 +35,34 @@ class RePanzaClient:
                 page.fill('input[placeholder="Password"]', password)
                 page.click('button:has-text("LOG IN")')
                 
-                # Attesa mondi o manutenzione
-                selector_mondo = ".button-game-world--title:has-text('Italia VI')"
-                selector_ok = "button:has-text('OK')"
+                # Selettore specifico per evitare il conflitto con Italia VII
+                # Usiamo .first per assicurarci di prendere il primo elemento trovato
+                selector_mondo = page.locator(".button-game-world--title:has-text('Italia VI')").first
+                selector_ok = page.locator("button:has-text('OK')")
                 
                 for i in range(120):
-                    # 1. Se compare il tasto OK (Manutenzione), lo premiamo
-                    if page.locator(selector_ok).is_visible():
-                        print("🛠️ Rilevata manutenzione! Premo OK per forzare...")
-                        page.locator(selector_ok).click()
+                    # 1. Gestione Manutenzione
+                    if selector_ok.is_visible():
+                        print("🛠️ Manutenzione rilevata. Premo OK...")
+                        selector_ok.click()
                         time.sleep(2)
                     
-                    # 2. Se compare il mondo, lo clicchiamo
-                    if page.locator(selector_mondo).is_visible():
-                        print("🎯 Mondo trovato! Click su Italia VI...")
-                        page.locator(selector_mondo).first.click(force=True)
-                        page.locator(selector_mondo).first.evaluate("node => node.click()")
+                    # 2. Selezione Mondo (Risolve l'errore di duplicati)
+                    if selector_mondo.is_visible():
+                        print("🎯 Italia VI trovato. Entro...")
+                        selector_mondo.click(force=True)
+                        selector_mondo.evaluate("node => node.click()")
                     
-                    # 3. Se abbiamo il SID, usciamo con successo
+                    # 3. Successo
                     if capture["sid"]:
                         sid_final = capture["sid"]
                         browser.close()
                         return RePanzaClient(sid_final)
                     
-                    if i % 10 == 0: print(f"📡 In attesa... ({i}s)")
                     time.sleep(1)
                 
-                print("❌ Timeout finale raggiunto.")
-                page.screenshot(path="debug_final_attempt.png")
+                print("❌ Timeout finale.")
+                page.screenshot(path="debug_final.png")
                 
             except Exception as e:
                 print(f"⚠️ Errore: {e}")
