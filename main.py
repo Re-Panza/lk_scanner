@@ -2,64 +2,81 @@ import os
 import json
 import requests
 import time
+import plistlib # FONDAMENTALE PER LEGGERE LA RISPOSTA
 from client import RePanzaClient
 
 def run_scanner():
     EMAIL = os.getenv("LK_EMAIL")
     PASSWORD = os.getenv("LK_PASSWORD")
     
-    # 1. Login Automatico
+    # 1. Login
     client = RePanzaClient.auto_login(EMAIL, PASSWORD)
     if not client:
         return
 
-    # 2. Setup della Sessione "Clonata" (La logica manuale applicata all'automazione)
+    # 2. Configurazione Sessione Clone
     session = requests.Session()
-    
-    # Carichiamo i cookie presi da Playwright dentro requests
     for cookie in client.cookies:
         session.cookies.set(cookie['name'], cookie['value'])
 
-    # Header che imitano perfettamente il browser (fondamentale!)
+    # HEADER COPIATI DAL TUO CURL
     session.headers.update({
-        "User-Agent": client.user_agent,
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": "https://www.lordsandknights.com/"
+        'User-Agent': client.user_agent,
+        'Accept': 'application/x-bplist', # Questo è il segreto!
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'XYClient-Client': 'lk_b_3',
+        'XYClient-Platform': 'browser',
+        'XYClient-PlatformLanguage': 'it',
+        'Origin': 'https://www.lordsandknights.com',
+        'Referer': 'https://www.lordsandknights.com/'
     })
 
-    # URL API Browser per Italia VI (IT-6)
-    url_ranking = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-RE-IT-6.woa/wa/PlayerAction/getRanking"
+    # URL ESATTO DAL CURL
+    url_ranking = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-RE-IT-6.woa/wa/QueryAction/playerRanks"
     
     all_players = []
     offset = 0
     step = 100
     
-    print(f"🚀 Avvio scaricamento dati (Sessione Browser Autenticata)...")
-    time.sleep(5) # Pausa tattica post-login
+    print(f"🚀 Avvio Scansione BPLIST (SID: {client.session_id[:8]})...")
+    time.sleep(5)
 
     while True:
         try:
-            params = {
-                "sessionID": client.session_id,
-                "offset": offset,
-                "count": step,
-                "rankingType": 0
+            # PAYLOAD COSTRUITO SULLA BASE DEL CURL
+            # Sostituiamo 'centerOnPage...' con 'offset' per scorrere la lista
+            payload = {
+                'offset': str(offset),
+                'limit': str(step),
+                'type': '(player_rank)',
+                'sortBy': '(row.asc)',
+                'worldId': '327' # Mondo Italia VI
             }
             
-            # Richiesta API usando la sessione coi cookie
-            response = session.get(url_ranking, params=params, timeout=30)
+            # Richiesta POST (Il curl usa --data-raw, quindi è una POST)
+            response = session.post(url_ranking, data=payload, timeout=30)
             
-            # Controllo se è JSON valido
-            try:
-                data = response.json()
-            except ValueError:
-                # Se fallisce qui, stampiamo l'HTML per debug
-                print(f"⚠️ Risposta Server non valida (HTML): {response.text[:100]}...")
+            if response.status_code != 200:
+                print(f"⚠️ Errore HTTP {response.status_code}")
                 break
 
-            players = data.get('allRankings', [])
+            # DECODIFICA PLIST BINARIO
+            try:
+                data = plistlib.loads(response.content)
+            except Exception as e:
+                print(f"⚠️ Errore decodifica PLIST: {e}")
+                # Se fallisce, stampiamo l'inizio per capire
+                print(f"Risposta raw: {response.content[:100]}")
+                break
+
+            # L'app di solito restituisce 'playerRanks' o 'rows'
+            players = data.get('playerRanks', [])
             if not players:
+                # Fallback: a volte la chiave cambia
+                players = data.get('rows', [])
+            
+            if not players:
+                print("🏁 Nessun altro giocatore trovato.")
                 break
             
             all_players.extend(players)
@@ -72,15 +89,24 @@ def run_scanner():
             time.sleep(0.5)
             
         except Exception as e:
-            print(f"💥 Errore: {e}")
+            print(f"💥 Errore Critico: {e}")
             break
 
-    # 3. Salvataggio
+    # 3. Salvataggio e Conversione in JSON Leggibile
     if all_players:
         filename = "database_classificamondo327.json"
+        
+        # Pulizia dati (i plist possono contenere oggetti binari non serializzabili in JSON)
+        clean_data = []
+        for p in all_players:
+            # Convertiamo eventuali byte/date in stringhe
+            clean_p = {k: (str(v) if not isinstance(v, (str, int, float, bool, list, dict, type(None))) else v) for k, v in p.items()}
+            clean_data.append(clean_p)
+
         with open(filename, "w", encoding="utf-8") as f:
-            json.dump(all_players, f, indent=4, ensure_ascii=False)
-        msg = f"✅ Scansione completata: {len(all_players)} giocatori salvati."
+            json.dump(clean_data, f, indent=4, ensure_ascii=False)
+        
+        msg = f"✅ Scansione BPLIST completata: {len(clean_data)} giocatori."
         print(msg)
         RePanzaClient.send_telegram_alert(msg)
     else:
