@@ -10,8 +10,8 @@ class RePanzaClient:
     @staticmethod
     def auto_login(email, password):
         with sync_playwright() as p:
-            # Usiamo una finestra 1280x720 come quella dello screenshot
             browser = p.chromium.launch(headless=True)
+            # Usiamo un'identità più simile a un browser desktop per evitare il blocco "Connect with Facebook"
             context = browser.new_context(viewport={'width': 1280, 'height': 720})
             page = context.new_page()
 
@@ -19,42 +19,38 @@ class RePanzaClient:
             page.goto("https://www.lordsandknights.com/", wait_until="networkidle")
             
             try:
-                # Aspettiamo che la maschera di login sia pronta
-                print("⏳ Localizzazione campi di login in alto a destra...")
-                
-                # Usiamo i placeholder che vediamo nell'immagine: "Email" e "Password"
+                # 1. Inserimento credenziali
                 page.wait_for_selector('input[placeholder="Email"]', timeout=20000)
+                page.fill('input[placeholder="Email"]', email)
+                page.fill('input[placeholder="Password"]', password)
                 
-                print(f"⌨️ Scrittura credenziali...")
-                # Forziamo il click prima di scrivere per essere sicuri di avere il focus
-                page.click('input[placeholder="Email"]')
-                page.type('input[placeholder="Email"]', email, delay=100)
+                # 2. Click e attesa navigazione
+                print("🖱️ Click sul tasto LOG IN e attesa risposta server...")
+                page.click('button:has-text("LOG IN")')
                 
-                page.click('input[placeholder="Password"]')
-                page.type('input[placeholder="Password"]', password, delay=100)
-                
-                print("🖱️ Click sul tasto LOG IN arancione...")
-                # Puntiamo al tasto LOG IN che vediamo nello screenshot
-                page.click('button:has-text("LOG IN"), .login-button, .button-login')
+                # Aspettiamo che il caricamento finisca (il gioco è pesante)
+                time.sleep(20) 
 
-                print("⏳ Attesa validazione (15s)...")
-                time.sleep(15)
-
-                # Estrazione sessione dai cookie
+                # 3. Controllo Sessione in vari posti (Cookie o LocalStorage)
                 cookies = context.cookies()
-                session_id = next((c['value'] for c in cookies if c['name'] == 'sessionID'), None)
-
-                if session_id:
-                    print(f"✅ SESSIONE CATTURATA: {session_id[:8]}...")
-                    return RePanzaClient(session_id)
+                # Cerchiamo il cookie sessionID
+                sid = next((c['value'] for c in cookies if c['name'] == 'sessionID'), None)
                 
-                # Se non trova il cookie, facciamo un altro screenshot per vedere cosa è successo dopo il click
-                page.screenshot(path="debug_after_click.png")
-                print("❌ Login premuto ma sessione non trovata. Screenshot salvato.")
+                # Se non è nei cookie, potrebbe essere nel LocalStorage del browser
+                if not sid:
+                    sid = page.evaluate("localStorage.getItem('sessionID')")
+
+                if sid:
+                    print(f"✅ SESSIONE AGGANCIATA: {sid[:8]}...")
+                    return RePanzaClient(sid)
+                
+                # Se fallisce ancora, salviamo cosa vede il bot dopo il login
+                page.screenshot(path="debug_after_login_attempt.png")
+                print("❌ Sessione non trovata dopo 20s. Forse serve un secondo click?")
                 
             except Exception as e:
-                page.screenshot(path="debug_login.png")
-                print(f"💥 Errore durante l'inserimento: {e}")
+                print(f"💥 Errore: {e}")
+                page.screenshot(path="debug_login_error.png")
             
             browser.close()
             return None
