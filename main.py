@@ -4,62 +4,52 @@ import requests
 import time
 from client import RePanzaClient
 
-# Credenziali dalle Secret di GitHub
-EMAIL = os.getenv("LK_EMAIL")
-PASSWORD = os.getenv("LK_PASSWORD")
-
 def run_scanner():
-    # 1. Otteniamo il SessionID tramite Playwright
-    client = RePanzaClient.auto_login(EMAIL, PASSWORD)
+    EMAIL = os.getenv("LK_EMAIL")
+    PASSWORD = os.getenv("LK_PASSWORD")
     
+    client = RePanzaClient.auto_login(EMAIL, PASSWORD)
     if not client:
         print("❌ Impossibile ottenere il sessionID. Esco.")
         return
 
-    # 2. Configurazione Scansione Classifica Mondo 327
+    # Endpoint Ranking Mondo 327
     url_ranking = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-RE-IT-6.woa/wa/PlayerAction/getRanking"
     all_players = []
     offset = 0
     step = 100
     
-    print(f"📊 Avvio scansione classifica totale...")
+    print(f"📊 Download classifica con SID: {client.session_id[:8]}...")
     
     while True:
-        params = {
-            "sessionID": client.session_id,
-            "offset": offset,
-            "count": step,
-            "rankingType": 0
-        }
-        
         try:
-            response = requests.get(url_ranking, params=params)
+            params = {"sessionID": client.session_id, "offset": offset, "count": step, "rankingType": 0}
+            response = requests.get(url_ranking, params=params, timeout=15)
+            
+            if response.status_code != 200:
+                print(f"🛑 Errore Server: {response.status_code}")
+                break
+
             data = response.json()
-            # La struttura tipica restituisce la lista in 'allRankings'
             players = data.get('allRankings', [])
             
-            if not players:
-                break
-            
+            if not players: break
             all_players.extend(players)
-            print(f"📥 Scaricati {len(all_players)} giocatori...")
             
-            if len(players) < step: # Fine della classifica
-                break
-                
+            print(f"📥 Scaricati {len(all_players)} player...")
+            if len(players) < step: break
+            
             offset += step
-            time.sleep(0.3) # Rispetto per il server
-            
+            time.sleep(0.5)
         except Exception as e:
-            print(f"⚠️ Errore durante il download: {e}")
+            print(f"⚠️ Interruzione scansione: {e}")
             break
 
-    # 3. Salvataggio Database
-    filename = "database_classificamondo327.json"
-    with open(filename, "w", encoding="utf-8") as f:
+    # Salvataggio Database
+    with open("database_classificamondo327.json", "w", encoding="utf-8") as f:
         json.dump(all_players, f, indent=4, ensure_ascii=False)
     
-    print(f"💾 DATABASE AGGIORNATO: {len(all_players)} player salvati in {filename}!")
+    RePanzaClient.send_telegram_alert(f"📊 Database Italia VI aggiornato! {len(all_players)} player scansionati.")
 
 if __name__ == "__main__":
     run_scanner()
