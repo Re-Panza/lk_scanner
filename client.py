@@ -1,6 +1,5 @@
 from playwright.sync_api import sync_playwright
 import time
-import re
 
 class RePanzaClient:
     def __init__(self, session_id, token):
@@ -18,43 +17,43 @@ class RePanzaClient:
             page.goto("https://www.lordsandknights.com/", wait_until="networkidle")
             
             try:
-                # 1. Login
+                # 1. Inserimento credenziali
                 page.fill('input[placeholder="Email"]', email)
                 page.fill('input[placeholder="Password"]', password)
                 
-                # Prepariamo l'ascoltatore per la risposta del server prima di cliccare
-                with page.expect_response(lambda response: "login" in response.url and response.status == 200, timeout=60000) as response_info:
-                    page.click('button:has-text("LOG IN")')
-                    
-                    # Dopo il login, clicchiamo sul mondo per forzare la sessione finale
-                    time.sleep(10)
-                    print("🎯 Selezione Italia VI...")
-                    page.mouse.click(300, 230)
+                # Clicchiamo e aspettiamo che il traffico di login si calmi
+                page.click('button:has-text("LOG IN")')
+                print("⏳ Attesa validazione credenziali...")
+                time.sleep(10)
                 
-                # 2. Analisi della risposta intercettata
-                response = response_info.value
-                headers = response.all_headers()
-                cookie_str = headers.get("set-cookie", "")
+                # 2. Selezione Mondo e Attesa Risposta
+                print("🎯 Selezione Italia VI...")
+                # Usiamo le coordinate confermate per il click balistico
+                page.mouse.click(300, 230) 
                 
-                print(f"📡 Analisi risposta login completata. Cerco SID e Token...")
-                
-                sid_match = re.search(r'sessionID=([a-z0-9\-]+)', cookie_str)
-                token_match = re.search(r'token=([a-z0-9\-]+)', cookie_str)
-                
-                sid = sid_match.group(1) if sid_match else None
-                token = token_match.group(1) if token_match else None
+                # Aspettiamo che il file 'login' passi e depositi i cookie
+                print("🏰 Entrata nel mondo... Estrazione cookie di sessione...")
+                time.sleep(15) 
+
+                # 3. Estrazione massiva dal contesto
+                cookies = context.cookies()
+                sid = next((c['value'] for c in cookies if c['name'] == 'sessionID'), None)
+                token = next((c['value'] for c in cookies if c['name'] == 'token'), None)
 
                 if sid:
-                    print(f"✅ SESSIONE AGGANCIATA: {sid[:8]}...")
+                    print(f"✅ SESSIONE AGGANCIATA!")
+                    print(f"🔑 SID: {sid[:8]}... | Token: {token[:8] if token else 'N/D'}...")
+                    
                     with open("session_data.txt", "w") as f:
                         f.write(f"SID={sid}\nTOKEN={token}")
                     return RePanzaClient(sid, token)
                 
-                print("❌ Dati non trovati nella risposta del server.")
-                page.screenshot(path="debug_network_fail.png")
+                # Se fallisce, salviamo i cookie trovati per debug
+                print(f"❌ SID non trovato. Cookie rilevati: {[c['name'] for c in cookies]}")
+                page.screenshot(path="debug_final_check.png")
                 
             except Exception as e:
-                print(f"💥 Errore durante l'intercettazione: {e}")
+                print(f"💥 Errore critico: {e}")
             
             browser.close()
             return None
