@@ -1,43 +1,83 @@
-name: RePanza Oracle Scan
+import os
+import json
+import requests
+import time
+from client import RePanzaClient
 
-on:
-  workflow_dispatch: # Per lanciarlo tu quando vuoi
-  schedule:
-    - cron: '0 12 * * *' # Ogni giorno alle 12:00
+def run_scanner():
+    # Recupero credenziali dai Secrets di GitHub
+    EMAIL = os.getenv("LK_EMAIL")
+    PASSWORD = os.getenv("LK_PASSWORD")
+    
+    # 1. Fase di Login e intercettazione SID
+    print("🚀 Avvio RePanza Oracle...")
+    client = RePanzaClient.auto_login(EMAIL, PASSWORD)
+    
+    if not client or not client.session_id:
+        print("❌ Login fallito: SessionID non ottenuto. Esco.")
+        return
 
-jobs:
-  scan:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # Permesso fondamentale per sovrascrivere il file nella repo
+    # 2. Configurazione Scansione Diretta via API
+    # Usiamo l'endpoint che fornisce i dati grezzi della classifica
+    url_ranking = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-RE-IT-6.woa/wa/PlayerAction/getRanking"
+    
+    all_players = []
+    offset = 0
+    step = 100 
+    
+    print(f"📡 SID Ottenuto: {client.session_id[:10]}...")
+    print(f"📥 Inizio download classifica Mondo 327...")
+    RePanzaClient.send_telegram_alert(f"🔮 Oracle: Login OK. Inizio scansione classifica...")
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    while True:
+        try:
+            # Parametri della richiesta API
+            params = {
+                "sessionID": client.session_id,
+                "offset": offset,
+                "count": step,
+                "rankingType": 0 # Classifica Punti
+            }
+            
+            # Chiamata HTTP diretta al server
+            response = requests.get(url_ranking, params=params, timeout=20)
+            
+            if response.status_code != 200:
+                print(f"⚠️ Errore API (Status {response.status_code}). Provo a continuare...")
+                break
+            
+            data = response.json()
+            players = data.get('allRankings', [])
+            
+            if not players:
+                print("🏁 Fine della classifica raggiunta.")
+                break
+            
+            all_players.extend(players)
+            print(f"✅ Scaricati {len(all_players)} giocatori (Offset: {offset})...")
+            
+            # Se il server manda meno di 100 player, siamo alla fine
+            if len(players) < step:
+                break
+                
+            offset += step
+            time.sleep(0.3) # Pausa per non essere rilevati come spammer
+            
+        except Exception as e:
+            print(f"💥 Errore durante il download: {e}")
+            break
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
+    # 3. Salvataggio Database JSON
+    if all_players:
+        filename = "database_classificamondo327.json"
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(all_players, f, indent=4, ensure_ascii=False)
+        
+        success_msg = f"📊 Scansione completata!\n📦 Player salvati: {len(all_players)}"
+        print(f"💾 {success_msg}")
+        RePanzaClient.send_telegram_alert(success_msg)
+    else:
+        print("⚠️ Nessun dato salvato: la classifica è vuota o l'API ha rifiutato la richiesta.")
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install playwright requests
-          playwright install chromium --with-deps
-
-      - name: Run RePanza Scanner
-        env:
-          LK_EMAIL: ${{ secrets.LK_EMAIL }}
-          LK_PASSWORD: ${{ secrets.LK_PASSWORD }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python main.py
-
-      - name: Update Database File
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "RePanza_Oracle_Bot"
-          git add database_classificamondo327.json
-          # Commit solo se i dati sono effettivamente cambiati
-          git diff --quiet && git diff --staged --quiet || (git commit -m "📊 Database Italia VI: Aggiornamento giornaliero" && git push)
+if __name__ == "__main__":
+    run_scanner()
