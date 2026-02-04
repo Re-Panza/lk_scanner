@@ -1,7 +1,6 @@
 from playwright.sync_api import sync_playwright
 import os
 import time
-import re
 
 class RePanzaClient:
     def __init__(self, session_id):
@@ -12,54 +11,50 @@ class RePanzaClient:
     def auto_login(email, password):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
+            # Riproduciamo esattamente l'ambiente dove vedi i cookie
             context = browser.new_context(viewport={'width': 1280, 'height': 720})
             page = context.new_page()
-
-            # Variabile per salvare il sessionID intercettato
-            captured_sid = {"id": None}
-
-            # Funzione che analizza ogni richiesta di rete
-            def handle_request(request):
-                # Cerchiamo il sessionID nell'URL della richiesta (tipico dei cURL di L&K)
-                if "sessionID=" in request.url:
-                    match = re.search(r'sessionID=([a-z0-9\-]+)', request.url)
-                    if match:
-                        captured_sid["id"] = match.group(1)
-                        print(f"📡 INTERCETTATO sessionID dalla rete: {captured_sid['id'][:8]}...")
-
-            # Attiviamo lo sniffer di rete prima di fare qualsiasi cosa
-            page.on("request", handle_request)
 
             print(f"🌐 Caricamento Lords & Knights...")
             page.goto("https://www.lordsandknights.com/", wait_until="networkidle")
             
             try:
-                # 1. Login
+                # 1. Login Rapido
                 page.fill('input[placeholder="Email"]', email)
                 page.fill('input[placeholder="Password"]', password)
                 page.click('button:has-text("LOG IN")')
                 
-                # 2. Selezione Mondo (Coordinate X:300, Y:230)
-                time.sleep(12)
+                # 2. Selezione Mondo Italia VI
+                print("⏳ Attesa caricamento mondi...")
+                time.sleep(10)
                 page.mouse.click(300, 230)
                 print("🖱️ Click su Italia VI inviato!")
                 
-                # 3. Attesa Caricamento Gioco e Intercettazione
-                print("🏰 Entrata nel castello... In ascolto per il sessionID (30s)...")
-                
-                # Aspettiamo che il gioco faccia le sue chiamate per caricare la mappa
-                for _ in range(30):
-                    if captured_sid["id"]:
-                        break
-                    time.sleep(1)
+                # 3. Recupero immediato dei Cookie
+                # Aspettiamo solo qualche secondo per permettere al server di rispondere con i Set-Cookie
+                print("⏳ Recupero dati di sessione in corso...")
+                time.sleep(10) 
 
-                if captured_sid["id"]:
-                    print(f"✅ VITTORIA! Sessione catturata dal traffico: {captured_sid['id'][:8]}...")
-                    return RePanzaClient(captured_sid["id"])
+                cookies = context.cookies()
                 
-                # Se fallisce, facciamo lo screenshot della mappa per vedere se siamo dentro
-                page.screenshot(path="debug_mappa_gioco.png")
-                print("❌ Mappa caricata ma nessun sessionID passato nei cURL di rete.")
+                # Cerchiamo i tre valori chiave che vediamo nei tuoi DevTools
+                sid = next((c['value'] for c in cookies if c['name'] == 'sessionID'), None)
+                token = next((c['value'] for c in cookies if c['name'] == 'token'), None)
+                player_id = next((c['value'] for c in cookies if c['name'] == 'playerID'), None)
+
+                if sid and token:
+                    print(f"✅ SESSIONE AGGANCIATA!")
+                    print(f"🔑 ID: {sid[:8]}... | Token: {token[:8]}...")
+                    
+                    # Salviamo tutto per il Brain
+                    with open("session_data.txt", "w") as f:
+                        f.write(f"sessionID={sid}\ntoken={token}\nplayerID={player_id}")
+                    
+                    return RePanzaClient(sid)
+                
+                # Se non li trova, salviamo lo screenshot per capire se la pagina è diversa
+                page.screenshot(path="debug_cookies_missing.png")
+                print("❌ Cookie non trovati nel contesto del browser.")
                 
             except Exception as e:
                 print(f"💥 Errore: {e}")
