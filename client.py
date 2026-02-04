@@ -10,42 +10,42 @@ class RePanzaClient:
     @staticmethod
     def auto_login(email, password):
         with sync_playwright() as p:
-            # Avviamo il browser simulando un utente reale
-            browser = p.chromium.launch(headless=True) 
-            context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
+            # Usiamo un'identità browser standard per evitare blocchi
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             page = context.new_page()
 
-            print(f"🌐 Caricamento pagina di gioco...")
-            page.goto("https://www.lordsandknights.com/", wait_until="networkidle")
+            print(f"🌐 Caricamento pagina...")
+            # 'commit' è più veloce di 'networkidle' e previene i timeout sui caricamenti lenti
+            page.goto("https://www.lordsandknights.com/", wait_until="commit")
             
             try:
-                # Aspettiamo che il gioco carichi i campi di testo
-                page.wait_for_selector('input[type="email"]', timeout=15000)
+                # Aspettiamo il selettore email con più pazienza (30 secondi)
+                print("⏳ Cerco i campi di login (attesa max 30s)...")
+                email_field = page.wait_for_selector('input[type="email"], input[name="login"]', timeout=30000)
                 
-                print(f"⌨️ Inserimento credenziali per {email}...")
-                page.fill('input[type="email"]', email)
-                time.sleep(1) # Pausa umana
-                page.fill('input[type="password"]', password)
-                time.sleep(1)
-                
-                print("🖱️ Click sul tasto Login...")
-                # Cerchiamo il bottone di login specifico
-                page.click('button[type="submit"], .login-button, button:has-text("Login")')
+                if email_field:
+                    print(f"⌨️ Inserimento credenziali...")
+                    page.fill('input[type="email"], input[name="login"]', email)
+                    page.fill('input[type="password"]', password)
+                    
+                    # Clicchiamo il tasto login principale
+                    page.click('button[type="submit"], .login-button')
+                    
+                    print("⏳ Login effettuato. Controllo sessione...")
+                    time.sleep(10) # Tempo per il server di rispondere
 
-                print("⏳ Attesa generazione SessionID dal server...")
-                # Aspettiamo 15 secondi per dare tempo ai Blob e ai Token di arrivare
-                time.sleep(15)
+                    cookies = context.cookies()
+                    session_id = next((c['value'] for c in cookies if c['name'] == 'sessionID'), None)
 
-                # Controlliamo i cookie per trovare il sessionID
-                cookies = context.cookies()
-                session_id = next((c['value'] for c in cookies if c['name'] == 'sessionID'), None)
-
-                if session_id:
-                    print(f"✅ SESSIONE AGGANCIATA: {session_id[:8]}...")
-                    return RePanzaClient(session_id)
+                    if session_id:
+                        print(f"✅ SESSIONE OK: {session_id[:8]}...")
+                        return RePanzaClient(session_id)
                 
             except Exception as e:
-                print(f"💥 Errore durante l'interazione: {e}")
+                # Se fallisce, facciamo uno screenshot per capire cosa vede il bot (verrà salvato su GitHub)
+                page.screenshot(path="debug_login.png")
+                print(f"💥 Timeout o elemento non trovato. Screenshot salvato come debug_login.png")
             
             browser.close()
             return None
