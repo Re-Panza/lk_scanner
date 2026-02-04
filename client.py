@@ -2,7 +2,6 @@ from playwright.sync_api import sync_playwright
 import time
 import os
 import requests
-import json
 import re
 
 class RePanzaClient:
@@ -24,34 +23,27 @@ class RePanzaClient:
     def auto_login(email, password):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            # User agent reale per evitare blocchi
-            context = browser.new_context(viewport={'width': 1280, 'height': 720}, 
-                                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+            context = browser.new_context(viewport={'width': 1280, 'height': 720})
             page = context.new_page()
             
             capture = {"sid": None}
 
+            # Sniffer di rete per intercettare il pacchetto login
             def intercept_response(response):
-                # Cerchiamo ovunque nel pacchetto login
                 if "login" in response.url and response.status == 200:
                     try:
-                        # 1. Controllo COOKIE (Memoria)
+                        # 1. Controllo dai Cookie
                         cookies = context.cookies()
                         for c in cookies:
                             if c['name'] == 'sessionID':
                                 capture["sid"] = c['value']
-                                return
-
-                        # 2. Controllo CORPO RISPOSTA (JSON)
-                        try:
+                        
+                        # 2. Controllo dal corpo JSON (Backup)
+                        if not capture["sid"]:
                             text = response.text()
-                            if "sessionID" in text:
-                                # Cerca "sessionID":"..." oppure "sessionID" : "..."
-                                match = re.search(r'sessionID["\s:]+([a-z0-9\-]+)', text)
-                                if match:
-                                    capture["sid"] = match.group(1)
-                        except:
-                            pass
+                            match = re.search(r'sessionID["\s:]+([a-z0-9\-]+)', text)
+                            if match:
+                                capture["sid"] = match.group(1)
                     except:
                         pass
 
@@ -65,35 +57,36 @@ class RePanzaClient:
                 page.fill('input[placeholder="Password"]', password)
                 page.click('button:has-text("LOG IN")')
                 
+                # Selezione Mondo
                 selector_mondo = ".button-game-world--title:has-text('Italia VI')"
                 print("⏳ Attesa comparsa mondi...")
-                page.wait_for_selector(selector_mondo, timeout=30000)
+                page.wait_for_selector(selector_mondo, timeout=40000)
                 
                 print("🎯 Click su Italia VI...")
-                # Triplo metodo di click per forzare l'ingresso
                 btn = page.locator(selector_mondo).first
                 btn.click(force=True)
-                time.sleep(1)
-                btn.evaluate("node => node.click()")
+                btn.evaluate("node => node.click()") # Click JS di rinforzo
                 
                 print("📡 In ascolto per il sessionID...")
-                # Attesa aumentata a 120s per i runner lenti di GitHub
+                # Attesa estesa a 120s per runner lenti
                 for i in range(120):
                     if capture["sid"]:
                         sid_final = capture["sid"]
-                        print(f"✅ SID CATTURATO AL SECONDO {i}: {sid_final[:10]}...")
+                        print(f"✅ SID CATTURATO: {sid_final[:10]}...")
                         browser.close()
                         return RePanzaClient(sid_final)
                     
-                    time.sleep(1)
                     if i % 10 == 0 and i > 0:
                         print(f"   ...attesa {i}s ...")
+                    time.sleep(1)
                 
-                print("❌ Timeout: SID non arrivato.")
-                page.screenshot(path="debug_timeout.png")
+                # SE FALLISCE: Screenshot per capire dove siamo bloccati
+                print("❌ Timeout! Salvo screenshot di debug...")
+                page.screenshot(path="debug_timeout_view.png")
                 
             except Exception as e:
                 print(f"⚠️ Errore nel processo: {e}")
+                page.screenshot(path="debug_error_view.png")
             
             browser.close()
             return None
