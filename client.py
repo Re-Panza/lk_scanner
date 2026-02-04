@@ -1,6 +1,7 @@
 from playwright.sync_api import sync_playwright
 import os
 import time
+import re
 
 class RePanzaClient:
     def __init__(self, session_id):
@@ -14,6 +15,21 @@ class RePanzaClient:
             context = browser.new_context(viewport={'width': 1280, 'height': 720})
             page = context.new_page()
 
+            # Variabile per salvare il sessionID intercettato
+            captured_sid = {"id": None}
+
+            # Funzione che analizza ogni richiesta di rete
+            def handle_request(request):
+                # Cerchiamo il sessionID nell'URL della richiesta (tipico dei cURL di L&K)
+                if "sessionID=" in request.url:
+                    match = re.search(r'sessionID=([a-z0-9\-]+)', request.url)
+                    if match:
+                        captured_sid["id"] = match.group(1)
+                        print(f"📡 INTERCETTATO sessionID dalla rete: {captured_sid['id'][:8]}...")
+
+            # Attiviamo lo sniffer di rete prima di fare qualsiasi cosa
+            page.on("request", handle_request)
+
             print(f"🌐 Caricamento Lords & Knights...")
             page.goto("https://www.lordsandknights.com/", wait_until="networkidle")
             
@@ -23,37 +39,30 @@ class RePanzaClient:
                 page.fill('input[placeholder="Password"]', password)
                 page.click('button:has-text("LOG IN")')
                 
-                # 2. Selezione Mondo (Mira confermata X:300, Y:230)
-                print("⏳ Attesa schermata mondi...")
+                # 2. Selezione Mondo (Coordinate X:300, Y:230)
                 time.sleep(12)
                 page.mouse.click(300, 230)
                 print("🖱️ Click su Italia VI inviato!")
                 
-                # 3. Attesa Caricamento Gioco
-                print("🏰 Entrata nel castello... Attesa caricamento mappa (25s)...")
-                # Aumentiamo l'attesa perché la mappa è pesante
-                time.sleep(25) 
+                # 3. Attesa Caricamento Gioco e Intercettazione
+                print("🏰 Entrata nel castello... In ascolto per il sessionID (30s)...")
                 
-                # Facciamo uno screenshot della mappa per conferma
-                page.screenshot(path="debug_mappa_gioco.png")
+                # Aspettiamo che il gioco faccia le sue chiamate per caricare la mappa
+                for _ in range(30):
+                    if captured_sid["id"]:
+                        break
+                    time.sleep(1)
 
-                # 4. Estrazione Sessione Post-Caricamento
-                print("🔑 Tentativo recupero sessione attiva...")
-                cookies = context.cookies()
-                sid = next((c['value'] for c in cookies if c['name'] == 'sessionID'), None)
+                if captured_sid["id"]:
+                    print(f"✅ VITTORIA! Sessione catturata dal traffico: {captured_sid['id'][:8]}...")
+                    return RePanzaClient(captured_sid["id"])
                 
-                if sid:
-                    print(f"✅ SESSIONE AGGANCIATA: {sid[:8]}...")
-                    # Salviamo la sessione in un file locale per gli usi futuri del Brain
-                    with open("session.txt", "w") as f:
-                        f.write(sid)
-                    return RePanzaClient(sid)
-                
-                print("❌ Mappa caricata ma sessione non trovata nei cookie.")
+                # Se fallisce, facciamo lo screenshot della mappa per vedere se siamo dentro
+                page.screenshot(path="debug_mappa_gioco.png")
+                print("❌ Mappa caricata ma nessun sessionID passato nei cURL di rete.")
                 
             except Exception as e:
                 print(f"💥 Errore: {e}")
-                page.screenshot(path="debug_error.png")
             
             browser.close()
             return None
