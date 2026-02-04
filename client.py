@@ -22,8 +22,8 @@ class RePanzaClient:
     @staticmethod
     def auto_login(email, password):
         with sync_playwright() as p:
-            # Usiamo lo stesso User-Agent del tuo CURL per coerenza totale
-            ua = "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Mobile Safari/537.36"
+            # TORNIAMO AL DESKTOP: Questo garantisce che il sito carichi i bottoni giusti
+            ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
             
             browser = p.chromium.launch(headless=True)
             context = browser.new_context(viewport={'width': 1280, 'height': 720}, user_agent=ua)
@@ -43,27 +43,31 @@ class RePanzaClient:
             page.on("response", intercept_response)
             
             try:
-                print("🌐 Caricamento Lords & Knights...")
+                print("🌐 Caricamento Lords & Knights (Modalità Desktop)...")
                 page.goto("https://www.lordsandknights.com/", wait_until="networkidle", timeout=90000)
                 
                 page.fill('input[placeholder="Email"]', email)
                 page.fill('input[placeholder="Password"]', password)
                 page.click('button:has-text("LOG IN")')
                 
-                # Logica per Italia VI
                 selector_mondo = page.locator(".button-game-world--title:has-text('Italia VI')").first
                 selector_ok = page.locator("button:has-text('OK')")
                 
                 print("⏳ Attesa accesso mondo...")
-                for i in range(120):
+                for i in range(120): # 2 minuti di tentativi
+                    # 1. Manutenzione
                     if selector_ok.is_visible():
+                        print("🛠️ Premo OK su Manutenzione...")
                         selector_ok.click()
                         time.sleep(1)
                     
+                    # 2. Ingresso Mondo
                     if selector_mondo.is_visible():
+                        print("🎯 Trovato Italia VI! Entro...")
                         selector_mondo.click(force=True)
                         selector_mondo.evaluate("node => node.click()")
                     
+                    # 3. Controllo Successo
                     if capture["sid"]:
                         all_cookies = context.cookies()
                         sid_final = capture["sid"]
@@ -72,9 +76,16 @@ class RePanzaClient:
                         return RePanzaClient(sid_final, all_cookies, ua)
                     
                     time.sleep(1)
+                    
+                # SE ARRIVIAMO QUI, È TIMEOUT -> FACCIO LA FOTO
+                print("❌ Timeout Login! Salvo screenshot di debug...")
+                page.screenshot(path="debug_timeout.png")
                 
             except Exception as e:
                 print(f"⚠️ Errore Login: {e}")
+                try:
+                    page.screenshot(path="debug_error.png")
+                except: pass
             
             browser.close()
             return None
