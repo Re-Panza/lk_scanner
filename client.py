@@ -13,7 +13,10 @@ class RePanzaClient:
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
         if token and chat_id:
             url = f"https://api.telegram.org/bot{token}/sendMessage"
-            requests.post(url, data={"chat_id": chat_id, "text": message})
+            try:
+                requests.post(url, data={"chat_id": chat_id, "text": message}, timeout=10)
+            except:
+                pass
 
     @staticmethod
     def auto_login(email, password):
@@ -27,11 +30,13 @@ class RePanzaClient:
                 # Monitoraggio Ban e SID
                 if "login" in response.url:
                     if response.status == 403:
-                        RePanzaClient.send_telegram_alert("🚨 Account BANNATO!")
+                        msg = "🚨 RE PANZA ALERT: Account esca BANNATO! 🚨"
+                        print(msg)
+                        RePanzaClient.send_telegram_alert(msg)
                     
                     if response.status == 200:
                         try:
-                            # Cerchiamo il SID senza chiudere nulla qui dentro
+                            # Estrazione SID dai cookie del browser
                             cookies = context.cookies()
                             for cookie in cookies:
                                 if cookie['name'] == 'sessionID':
@@ -40,6 +45,7 @@ class RePanzaClient:
                             pass
 
             page.on("response", intercept_response)
+            print("🌐 Caricamento Lords & Knights...")
             page.goto("https://www.lordsandknights.com/", wait_until="networkidle")
             
             try:
@@ -50,19 +56,19 @@ class RePanzaClient:
                 # Selezione Mondo
                 selector_mondo = ".button-game-world--title:has-text('Italia VI')"
                 page.wait_for_selector(selector_mondo, timeout=30000)
+                print("🎯 Click su Italia VI...")
                 page.locator(selector_mondo).first.click(force=True)
                 
-                # Aspettiamo il SID nel loop principale
+                # Attesa SID nel loop principale per evitare TargetClosedError
                 for _ in range(40):
                     if auth_data["sid"]:
-                        print(f"✅ SID PRONTO: {auth_data['sid'][:10]}")
-                        # Ora possiamo chiudere in sicurezza fuori dalla callback
                         sid_final = auth_data["sid"]
+                        print(f"✅ Sessione ottenuta: {sid_final[:10]}...")
                         browser.close()
                         return RePanzaClient(sid_final)
                     time.sleep(1)
             except Exception as e:
-                print(f"⚠️ Errore durante il login: {e}")
+                print(f"⚠️ Errore Login: {e}")
             
             browser.close()
             return None
