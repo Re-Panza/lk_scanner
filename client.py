@@ -10,51 +10,50 @@ class RePanzaClient:
     @staticmethod
     def auto_login(email, password):
         with sync_playwright() as p:
+            # Avvio browser con risoluzione fissa come lo screenshot
             browser = p.chromium.launch(headless=True)
             context = browser.new_context(viewport={'width': 1280, 'height': 720})
             page = context.new_page()
 
             print(f"🌐 Caricamento Lords & Knights...")
-            page.goto("https://www.lordsandknights.com/", wait_until="networkidle")
+            page.goto("https://www.lordsandknights.com/", wait_until="domcontentloaded")
             
             try:
-                # 1. Login veloce
-                page.wait_for_selector('input[placeholder="Email"]', timeout=15000)
+                # 1. Login Rapido
                 page.fill('input[placeholder="Email"]', email)
                 page.fill('input[placeholder="Password"]', password)
                 page.click('button:has-text("LOG IN")')
                 
-                # 2. Selezione Mondo "Senza Esitazione"
-                print("🏰 Cerco Italia VI per il click...")
+                # 2. Click Forzato su Italia VI
+                print("🏰 Tentativo di click su Italia VI...")
                 
-                # Usiamo un selettore più potente che cerca il testo dentro i contenitori dei mondi
-                world_selector = 'text="Italia VI"'
-                page.wait_for_selector(world_selector, timeout=20000)
+                # Aspettiamo solo 5 secondi che il testo appaia nel codice
+                page.wait_for_selector('text="Italia VI"', timeout=5000)
                 
-                # Forziamo il click anche se Playwright pensa che sia coperto o non visibile
-                page.click(world_selector, force=True, timeout=5000)
-                print("🖱️ Click su Italia VI inviato!")
+                # Clicchiamo usando il metodo 'dispatch_event' che simula il click 
+                # a livello di codice, scavalcando i controlli di visibilità
+                page.locator('text="Italia VI"').dispatch_event("click")
                 
-                # 3. Cattura Sessione
+                print("🖱️ Segnale di click inviato a Italia VI!")
+                
+                # 3. Recupero Sessione
                 print("⏳ Entrata nel mondo...")
                 time.sleep(15)
 
                 cookies = context.cookies()
                 sid = next((c['value'] for c in cookies if c['name'] == 'sessionID'), None)
                 
-                if not sid:
-                    sid = page.evaluate("localStorage.getItem('sessionID')")
-
                 if sid:
                     print(f"✅ SESSIONE AGGANCIATA: {sid[:8]}...")
                     return RePanzaClient(sid)
                 
-                page.screenshot(path="debug_after_click_world.png")
-                print("❌ Click fatto ma sessione non rilevata.")
+                # Se fallisce, scattiamo l'ultimo screenshot di questa fase
+                page.screenshot(path="debug_click_mondo.png")
+                print("❌ Sessione non trovata dopo il click forzato.")
                 
             except Exception as e:
-                print(f"💥 Errore: {e}")
-                page.screenshot(path="debug_final_error.png")
+                print(f"💥 Errore durante il click: {e}")
+                page.screenshot(path="debug_final.png")
             
             browser.close()
             return None
