@@ -27,16 +27,10 @@ class RePanzaClient:
             auth_data = {"sid": None}
 
             def intercept_response(response):
-                # Monitoraggio Ban e SID
                 if "login" in response.url:
-                    if response.status == 403:
-                        msg = "🚨 RE PANZA ALERT: Account esca BANNATO! 🚨"
-                        print(msg)
-                        RePanzaClient.send_telegram_alert(msg)
-                    
                     if response.status == 200:
                         try:
-                            # Estrazione SID dai cookie del browser
+                            # Cattura SID dai cookie
                             cookies = context.cookies()
                             for cookie in cookies:
                                 if cookie['name'] == 'sessionID':
@@ -45,30 +39,41 @@ class RePanzaClient:
                             pass
 
             page.on("response", intercept_response)
+            
             print("🌐 Caricamento Lords & Knights...")
-            page.goto("https://www.lordsandknights.com/", wait_until="networkidle")
+            page.goto("https://www.lordsandknights.com/", wait_until="networkidle", timeout=60000)
             
             try:
+                # Login
                 page.fill('input[placeholder="Email"]', email)
                 page.fill('input[placeholder="Password"]', password)
                 page.click('button:has-text("LOG IN")')
                 
-                # Selezione Mondo
+                # Attesa stabilizzazione pagina mondi
+                print("⏳ Attesa comparsa mondi...")
                 selector_mondo = ".button-game-world--title:has-text('Italia VI')"
                 page.wait_for_selector(selector_mondo, timeout=30000)
+                
+                # Doppio tentativo di click per sicurezza
                 print("🎯 Click su Italia VI...")
                 page.locator(selector_mondo).first.click(force=True)
-                
-                # Attesa SID nel loop principale per evitare TargetClosedError
-                for _ in range(40):
+                time.sleep(2)
+                if not auth_data["sid"]:
+                    page.locator(selector_mondo).first.dispatch_event("click")
+
+                # Loop di attesa rinforzato
+                for i in range(45):
                     if auth_data["sid"]:
                         sid_final = auth_data["sid"]
-                        print(f"✅ Sessione ottenuta: {sid_final[:10]}...")
+                        print(f"✅ Sessione agganciata: {sid_final[:10]}")
                         browser.close()
                         return RePanzaClient(sid_final)
+                    if i % 10 == 0 and i > 0:
+                        print("🔄 Ancora in attesa del pacchetto login.xhr...")
                     time.sleep(1)
+            
             except Exception as e:
-                print(f"⚠️ Errore Login: {e}")
+                print(f"⚠️ Errore durante la sequenza: {e}")
             
             browser.close()
             return None
