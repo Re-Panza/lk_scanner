@@ -1,50 +1,73 @@
-name: RePanza Oracle Scan
+import os
+import json
+import requests
+import time
+from client import RePanzaClient
 
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: '0 12 * * *'
+def run_scanner():
+    EMAIL = os.getenv("LK_EMAIL")
+    PASSWORD = os.getenv("LK_PASSWORD")
+    
+    client = RePanzaClient.auto_login(EMAIL, PASSWORD)
+    if not client:
+        return
 
-jobs:
-  scan:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    # Endpoint Classifica Mondo 327
+    url_ranking = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-RE-IT-6.woa/wa/PlayerAction/getRanking"
+    all_players = []
+    offset = 0
+    step = 100
+    
+    print(f"🚀 SID Preso ({client.session_id[:8]})! Simulazione caricamento mappa...")
+    # Aspettiamo 20 secondi per simulare il tempo che un umano impiega a vedere i castelli
+    time.sleep(20) 
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    # Header per simulare un browser reale ed evitare il blocco API
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": "https://www.lordsandknights.com/"
+    }
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
+    while True:
+        try:
+            params = {
+                "sessionID": client.session_id,
+                "offset": offset,
+                "count": step,
+                "rankingType": 0
+            }
+            
+            response = requests.get(url_ranking, params=params, headers=headers, timeout=30)
+            
+            # Se riceviamo HTML (errore), stampiamo il motivo reale invece di crashare
+            if "application/json" not in response.headers.get("Content-Type", "").lower():
+                print(f"⚠️ Il server rifiuta il JSON. Risposta del server: {response.text[:150]}")
+                break
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install playwright requests
-          playwright install chromium --with-deps
+            data = response.json()
+            players = data.get('allRankings', [])
+            
+            if not players:
+                break
+            
+            all_players.extend(players)
+            print(f"📥 Scaricati {len(all_players)} player...")
+            
+            if len(players) < step:
+                break
+                
+            offset += step
+            time.sleep(1) # Pausa più lunga per non insospettire il server
+            
+        except Exception as e:
+            print(f"💥 Errore parsing: {e}")
+            break
 
-      - name: Run RePanza Scanner
-        env:
-          LK_EMAIL: ${{ secrets.LK_EMAIL }}
-          LK_PASSWORD: ${{ secrets.LK_PASSWORD }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python main.py
-
-      - name: Commit and Push Database
-        if: always()
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "RePanza_Oracle_Bot"
-          git add database_classificamondo327.json || true
-          git diff --quiet && git diff --staged --quiet || (git commit -m "📊 Database aggiornato" && git push)
-
-      - name: Upload Debug Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-results
-          path: debug_*.png
+    if all_players:
+        with open("database_classificamondo327.json", "w", encoding="utf-8") as f:
+            json.dump(all_players, f, indent=4, ensure_ascii=False)
+        RePanzaClient.send_telegram_alert(f"✅ Scansione completata: {len(all_players)} player.")
+    else:
+        print("❌ Scansione fallita: il server ha restituito solo pagine di errore.")
