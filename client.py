@@ -1,60 +1,73 @@
 from playwright.sync_api import sync_playwright
-import os
 import time
 
 class RePanzaClient:
-    def __init__(self, session_id):
+    def __init__(self, session_id, token):
         self.session_id = session_id
-        self.base_url = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-RE-IT-6.woa/wa/PlayerAction"
+        self.token = token
 
     @staticmethod
     def auto_login(email, password):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            # Riproduciamo esattamente l'ambiente dove vedi i cookie
             context = browser.new_context(viewport={'width': 1280, 'height': 720})
             page = context.new_page()
+
+            # Variabili per salvare i dati estratti dal "file" login
+            auth_data = {"sessionID": None, "token": None}
+
+            # Funzione che "legge" le risposte proprio come nei DevTools
+            def intercept_response(response):
+                # Cerchiamo la chiamata 'login' che hai evidenziato
+                if "login" in response.url and response.status == 200:
+                    try:
+                        # Estraiamo i cookie direttamente dalla risposta del server
+                        cookies = response.headers_array()
+                        for cookie in cookies:
+                            if cookie['name'].lower() == 'set-cookie':
+                                value = cookie['value']
+                                if 'sessionID=' in value:
+                                    auth_data["sessionID"] = value.split('sessionID=')[1].split(';')[0]
+                                if 'token=' in value:
+                                    auth_data["token"] = value.split('token=')[1].split(';')[0]
+                        
+                        if auth_data["sessionID"]:
+                            print(f"✅ Dati intercettati dal file login: {auth_data['sessionID'][:8]}...")
+                    except Exception as e:
+                        print(f"⚠️ Errore lettura risposta: {e}")
+
+            # Attiviamo lo sniffer di risposte
+            page.on("response", intercept_response)
 
             print(f"🌐 Caricamento Lords & Knights...")
             page.goto("https://www.lordsandknights.com/", wait_until="networkidle")
             
             try:
-                # 1. Login Rapido
+                # 1. Login
                 page.fill('input[placeholder="Email"]', email)
                 page.fill('input[placeholder="Password"]', password)
                 page.click('button:has-text("LOG IN")')
                 
-                # 2. Selezione Mondo Italia VI
-                print("⏳ Attesa caricamento mondi...")
+                # 2. Click su Italia VI per scatenare la creazione della sessione
                 time.sleep(10)
                 page.mouse.click(300, 230)
-                print("🖱️ Click su Italia VI inviato!")
                 
-                # 3. Recupero immediato dei Cookie
-                # Aspettiamo solo qualche secondo per permettere al server di rispondere con i Set-Cookie
-                print("⏳ Recupero dati di sessione in corso...")
-                time.sleep(10) 
+                # Aspettiamo che il server risponda con il file 'login'
+                print("⏳ In attesa della risposta dal server (file login)...")
+                for _ in range(20):
+                    if auth_data["sessionID"] and auth_data["token"]:
+                        break
+                    time.sleep(1)
 
-                cookies = context.cookies()
-                
-                # Cerchiamo i tre valori chiave che vediamo nei tuoi DevTools
-                sid = next((c['value'] for c in cookies if c['name'] == 'sessionID'), None)
-                token = next((c['value'] for c in cookies if c['name'] == 'token'), None)
-                player_id = next((c['value'] for c in cookies if c['name'] == 'playerID'), None)
-
-                if sid and token:
-                    print(f"✅ SESSIONE AGGANCIATA!")
-                    print(f"🔑 ID: {sid[:8]}... | Token: {token[:8]}...")
-                    
-                    # Salviamo tutto per il Brain
+                if auth_data["sessionID"]:
+                    print(f"✅ VITTORIA: Sessione e Token catturati con successo!")
+                    # Salvataggio per uso futuro
                     with open("session_data.txt", "w") as f:
-                        f.write(f"sessionID={sid}\ntoken={token}\nplayerID={player_id}")
-                    
-                    return RePanzaClient(sid)
+                        f.write(f"SID={auth_data['sessionID']}\nTOKEN={auth_data['token']}")
+                    return RePanzaClient(auth_data["sessionID"], auth_data["token"])
                 
-                # Se non li trova, salviamo lo screenshot per capire se la pagina è diversa
-                page.screenshot(path="debug_cookies_missing.png")
-                print("❌ Cookie non trovati nel contesto del browser.")
+                print("❌ Il server non ha inviato i dati di sessione nel tempo previsto.")
+                page.screenshot(path="debug_no_login_data.png")
                 
             except Exception as e:
                 print(f"💥 Errore: {e}")
