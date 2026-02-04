@@ -8,6 +8,17 @@ class RePanzaClient:
         self.session_id = session_id
 
     @staticmethod
+    def send_telegram_alert(message):
+        token = os.getenv("TELEGRAM_TOKEN")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        if token and chat_id:
+            try:
+                requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
+                            data={"chat_id": chat_id, "text": message}, timeout=5)
+            except Exception as e:
+                print(f"⚠️ Errore Telegram: {e}")
+
+    @staticmethod
     def auto_login(email, password):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
@@ -35,35 +46,27 @@ class RePanzaClient:
                 page.fill('input[placeholder="Password"]', password)
                 page.click('button:has-text("LOG IN")')
                 
-                # Selettore specifico per evitare il conflitto con Italia VII
-                # Usiamo .first per assicurarci di prendere il primo elemento trovato
+                # Locator specifici per evitare conflitti
                 selector_mondo = page.locator(".button-game-world--title:has-text('Italia VI')").first
                 selector_ok = page.locator("button:has-text('OK')")
                 
                 for i in range(120):
-                    # 1. Gestione Manutenzione
                     if selector_ok.is_visible():
                         print("🛠️ Manutenzione rilevata. Premo OK...")
                         selector_ok.click()
                         time.sleep(2)
                     
-                    # 2. Selezione Mondo (Risolve l'errore di duplicati)
                     if selector_mondo.is_visible():
                         print("🎯 Italia VI trovato. Entro...")
                         selector_mondo.click(force=True)
                         selector_mondo.evaluate("node => node.click()")
                     
-                    # 3. Successo
                     if capture["sid"]:
                         sid_final = capture["sid"]
                         browser.close()
                         return RePanzaClient(sid_final)
                     
                     time.sleep(1)
-                
-                print("❌ Timeout finale.")
-                page.screenshot(path="debug_final.png")
-                
             except Exception as e:
                 print(f"⚠️ Errore: {e}")
             
