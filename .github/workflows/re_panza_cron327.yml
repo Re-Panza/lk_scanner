@@ -1,13 +1,14 @@
-name: Re Panza Brain - Daily Scan 327
+name: RePanza Oracle Scan
 
 on:
+  workflow_dispatch: # Permette l'avvio manuale
   schedule:
-    - cron: '0 4 * * *' # Scansione automatica ogni mattina alle 04:00
-  workflow_dispatch: # Permette l'avvio manuale per i test
+    - cron: '0 12 * * *' # Avvio automatico ogni giorno alle 12:00
 
 jobs:
   scan:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -20,26 +21,19 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Install Playwright Browsers
-        run: |
-          # Installa Chrome nei server di GitHub per simulare l'utente
+          pip install playwright requests
           playwright install chromium --with-deps
 
-      - name: Run Scanner
+      - name: Run RePanza Scanner
         env:
-          # Assicurati che questi nomi siano identici nei tuoi Secrets
           LK_EMAIL: ${{ secrets.LK_EMAIL }}
           LK_PASSWORD: ${{ secrets.LK_PASSWORD }}
-          LK_DEVICE_ID: ${{ secrets.LK_DEVICE_ID }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py
 
-      - name: Upload Debug Screenshot
-        # Usiamo 'always()' per caricare il file anche se lo script non rileva errori critici
-        if: always()
+      - name: Upload Database Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: debug-screenshot
-          path: debug_login.png
-          retention-days: 1
+          name: database-classifica
+          path: database_classificamondo327.json
