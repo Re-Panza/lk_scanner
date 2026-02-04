@@ -1,6 +1,6 @@
 from playwright.sync_api import sync_playwright
 import time
-import json
+import re
 
 class RePanzaClient:
     def __init__(self, session_id):
@@ -10,28 +10,30 @@ class RePanzaClient:
     def auto_login(email, password):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            context = browser.new_context()
+            context = browser.new_context(viewport={'width': 1280, 'height': 720})
             page = context.new_page()
 
-            captured_data = {"sid": None}
+            auth_result = {"sid": None}
 
-            # Questa funzione legge il contenuto del file 'login' proprio come nei DevTools
-            def handle_response(response):
+            # Funzione mirata sul pacchetto login.xhr
+            def intercept_xhr(response):
+                # Cerchiamo specificamente il file login o le chiamate XHR di login
                 if "login" in response.url and response.status == 200:
-                    try:
-                        # Estraiamo il JSON della risposta
-                        text = response.text()
-                        if "sessionID" in text:
-                            # Cerchiamo il valore con una ricerca testuale semplice per massima compatibilità
-                            import re
-                            match = re.search(r'sessionID["\s:]+([a-z0-9\-]+)', text)
-                            if match:
-                                captured_data["sid"] = match.group(1)
-                                print(f"📡 SESSIONE INTERCETTATA DAL PAYLOAD: {captured_data['sid'][:8]}...")
-                    except:
-                        pass
+                    print(f"📡 Intercettato pacchetto: {response.url}")
+                    
+                    # Estraiamo gli header di risposta (dove stanno i Response Cookies)
+                    headers = response.all_headers()
+                    set_cookie = headers.get("set-cookie", "")
+                    
+                    # Se il sessionID è qui dentro, lo prendiamo con la regex
+                    if "sessionID=" in set_cookie:
+                        match = re.search(r'sessionID=([a-z0-9\-]+)', set_cookie)
+                        if match:
+                            auth_result["sid"] = match.group(1)
+                            print(f"✅ sessionID estratto da login.xhr: {auth_result['sid'][:8]}...")
 
-            page.on("response", handle_response)
+            # Attiviamo lo sniffer prima delle azioni
+            page.on("response", intercept_xhr)
 
             print(f"🌐 Caricamento Lords & Knights...")
             page.goto("https://www.lordsandknights.com/", wait_until="networkidle")
@@ -42,26 +44,25 @@ class RePanzaClient:
                 page.fill('input[placeholder="Password"]', password)
                 page.click('button:has-text("LOG IN")')
                 
-                # 2. Selezione Mondo Italia VI
+                # 2. Selezione Mondo (scatena il login.xhr)
                 time.sleep(10)
-                print("🎯 Selezione Italia VI...")
-                page.mouse.click(300, 230)
+                print("🎯 Selezione Mondo per scatenare login.xhr...")
+                page.mouse.click(300, 230) 
                 
-                # Aspettiamo che il server invii il file 'login'
-                print("⏳ In attesa del payload di sessione...")
-                for _ in range(20):
-                    if captured_data["sid"]:
+                # 3. Attesa cattura dati
+                for _ in range(25):
+                    if auth_result["sid"]:
                         break
                     time.sleep(1)
 
-                if captured_data["sid"]:
-                    print(f"✅ VITTORIA! SessionID catturato con successo.")
+                if auth_result["sid"]:
+                    print(f"🎉 VITTORIA! Sessione recuperata dal pacchetto XHR.")
                     with open("session_data.txt", "w") as f:
-                        f.write(f"SID={captured_data['sid']}")
-                    return RePanzaClient(captured_data["sid"])
+                        f.write(f"SID={auth_result['sid']}")
+                    return RePanzaClient(auth_result["sid"])
                 
-                print("❌ Il payload JSON non conteneva il sessionID.")
-                page.screenshot(path="debug_network_payload.png")
+                print("❌ Il pacchetto login.xhr è passato ma non conteneva il sessionID negli header.")
+                page.screenshot(path="debug_xhr_fail.png")
                 
             except Exception as e:
                 print(f"💥 Errore: {e}")
