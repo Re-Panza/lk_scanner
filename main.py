@@ -1,30 +1,65 @@
 import os
-import sys
+import json
+import requests
+import time
 from client import RePanzaClient
 
-def run_scan():
-    # Recuperiamo i dati dai Secrets di GitHub
-    email = os.getenv('LK_EMAIL')
-    password = os.getenv('LK_PASSWORD')
+# Credenziali dalle Secret di GitHub
+EMAIL = os.getenv("LK_EMAIL")
+PASSWORD = os.getenv("LK_PASSWORD")
 
-    if not email or not password:
-        print(f"🚨 ERRORE: Mancano i dati! Email: {'OK' if email else 'MANCANTE'}, Pass: {'OK' if password else 'MANCANTE'}")
+def run_scanner():
+    # 1. Otteniamo il SessionID tramite Playwright
+    client = RePanzaClient.auto_login(EMAIL, PASSWORD)
+    
+    if not client:
+        print("❌ Impossibile ottenere il sessionID. Esco.")
         return
 
-    print(f"🚀 Re Panza Brain: Avvio Scansione Totale Mondo 327 per {email}...")
+    # 2. Configurazione Scansione Classifica Mondo 327
+    url_ranking = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-RE-IT-6.woa/wa/PlayerAction/getRanking"
+    all_players = []
+    offset = 0
+    step = 100
     
-    try:
-        # Avviamo il login col browser simulato
-        bot = RePanzaClient.auto_login(email, password)
+    print(f"📊 Avvio scansione classifica totale...")
+    
+    while True:
+        params = {
+            "sessionID": client.session_id,
+            "offset": offset,
+            "count": step,
+            "rankingType": 0
+        }
         
-        if bot:
-            print("✅ Connessione riuscita! Inizio recupero dati...")
-            # Qui aggiungi la tua logica per scaricare i dati
-        else:
-            print("❌ Login fallito: Il browser non ha catturato la sessione.")
-    except Exception as e:
-        print(f"💥 Errore durante l'esecuzione: {e}")
+        try:
+            response = requests.get(url_ranking, params=params)
+            data = response.json()
+            # La struttura tipica restituisce la lista in 'allRankings'
+            players = data.get('allRankings', [])
+            
+            if not players:
+                break
+            
+            all_players.extend(players)
+            print(f"📥 Scaricati {len(all_players)} giocatori...")
+            
+            if len(players) < step: # Fine della classifica
+                break
+                
+            offset += step
+            time.sleep(0.3) # Rispetto per il server
+            
+        except Exception as e:
+            print(f"⚠️ Errore durante il download: {e}")
+            break
 
-# QUESTA PARTE È FONDAMENTALE PER FARLO PARTIRE
+    # 3. Salvataggio Database
+    filename = "database_classificamondo327.json"
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(all_players, f, indent=4, ensure_ascii=False)
+    
+    print(f"💾 DATABASE AGGIORNATO: {len(all_players)} player salvati in {filename}!")
+
 if __name__ == "__main__":
-    run_scan()
+    run_scanner()
