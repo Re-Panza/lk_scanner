@@ -1,13 +1,15 @@
 name: RePanza Oracle Scan
 
 on:
-  workflow_dispatch: # Permette l'avvio manuale
+  workflow_dispatch: # Per lanciarlo tu quando vuoi
   schedule:
-    - cron: '0 12 * * *' # Avvio automatico ogni giorno alle 12:00
+    - cron: '0 12 * * *' # Ogni giorno alle 12:00
 
 jobs:
   scan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Permesso fondamentale per sovrascrivere il file nella repo
 
     steps:
       - name: Checkout repository
@@ -32,8 +34,10 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py
 
-      - name: Upload Database Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: database-classifica
-          path: database_classificamondo327.json
+      - name: Update Database File
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "RePanza_Oracle_Bot"
+          git add database_classificamondo327.json
+          # Commit solo se i dati sono effettivamente cambiati
+          git diff --quiet && git diff --staged --quiet || (git commit -m "📊 Database Italia VI: Aggiornamento giornaliero" && git push)
