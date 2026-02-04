@@ -8,58 +8,71 @@ def run_scanner():
     EMAIL = os.getenv("LK_EMAIL")
     PASSWORD = os.getenv("LK_PASSWORD")
     
-    # 1. Login e recupero chiave (SID)
+    # 1. Login Automatico
     client = RePanzaClient.auto_login(EMAIL, PASSWORD)
-    
     if not client:
-        print("❌ SessionID mancante. Stop.")
         return
 
-    # 2. CHIAMATA DIRETTA API (Il "curl" che chiedevi)
-    # Questo URL è l'endpoint esatto che il gioco chiama dietro le quinte
+    # 2. Setup della Sessione "Clonata" (La logica manuale applicata all'automazione)
+    session = requests.Session()
+    
+    # Carichiamo i cookie presi da Playwright dentro requests
+    for cookie in client.cookies:
+        session.cookies.set(cookie['name'], cookie['value'])
+
+    # Header che imitano perfettamente il browser (fondamentale!)
+    session.headers.update({
+        "User-Agent": client.user_agent,
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": "https://www.lordsandknights.com/"
+    })
+
+    # URL API Browser per Italia VI (IT-6)
     url_ranking = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-RE-IT-6.woa/wa/PlayerAction/getRanking"
     
     all_players = []
     offset = 0
     step = 100
     
-    print(f"🚀 SID Preso! Scarico classifica via API diretta...")
-    RePanzaClient.send_telegram_alert("🔮 RePanza Oracle: Login OK. Scarico classifica...")
+    print(f"🚀 Avvio scaricamento dati (Sessione Browser Autenticata)...")
+    time.sleep(5) # Pausa tattica post-login
 
     while True:
         try:
-            # Parametri esatti per farsi dare la classifica
             params = {
                 "sessionID": client.session_id,
                 "offset": offset,
                 "count": step,
-                "rankingType": 0 # Classifica Punti
+                "rankingType": 0
             }
             
-            # Richiesta diretta (velocissima)
-            response = requests.get(url_ranking, params=params, timeout=20)
+            # Richiesta API usando la sessione coi cookie
+            response = session.get(url_ranking, params=params, timeout=30)
             
-            if response.status_code != 200:
-                print(f"⚠️ Errore API: {response.status_code}")
+            # Controllo se è JSON valido
+            try:
+                data = response.json()
+            except ValueError:
+                # Se fallisce qui, stampiamo l'HTML per debug
+                print(f"⚠️ Risposta Server non valida (HTML): {response.text[:100]}...")
                 break
-            
-            data = response.json()
+
             players = data.get('allRankings', [])
-            
             if not players:
                 break
             
             all_players.extend(players)
-            print(f"📥 Scaricati {len(all_players)} player (Offset {offset})...")
+            print(f"📥 Scaricati {len(all_players)} giocatori...")
             
             if len(players) < step:
                 break
-                
+            
             offset += step
-            time.sleep(0.1) # Massima velocità
+            time.sleep(0.5)
             
         except Exception as e:
-            print(f"💥 Errore API: {e}")
+            print(f"💥 Errore: {e}")
             break
 
     # 3. Salvataggio
@@ -67,10 +80,11 @@ def run_scanner():
         filename = "database_classificamondo327.json"
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(all_players, f, indent=4, ensure_ascii=False)
-        
-        msg = f"✅ Scansione completata!\n📊 Giocatori totali: {len(all_players)}"
+        msg = f"✅ Scansione completata: {len(all_players)} giocatori salvati."
         print(msg)
         RePanzaClient.send_telegram_alert(msg)
+    else:
+        print("❌ Nessun dato salvato.")
 
 if __name__ == "__main__":
     run_scanner()
