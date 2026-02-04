@@ -27,53 +27,60 @@ class RePanzaClient:
             auth_data = {"sid": None}
 
             def intercept_response(response):
-                if "login" in response.url:
-                    if response.status == 200:
-                        try:
-                            # Cattura SID dai cookie
-                            cookies = context.cookies()
-                            for cookie in cookies:
-                                if cookie['name'] == 'sessionID':
-                                    auth_data["sid"] = cookie['value']
-                        except:
-                            pass
+                if "login" in response.url and response.status == 200:
+                    try:
+                        cookies = context.cookies()
+                        for cookie in cookies:
+                            if cookie['name'] == 'sessionID':
+                                auth_data["sid"] = cookie['value']
+                                print(f"✅ SID intercettato: {auth_data['sid'][:8]}...")
+                    except:
+                        pass
 
             page.on("response", intercept_response)
             
-            print("🌐 Caricamento Lords & Knights...")
-            page.goto("https://www.lordsandknights.com/", wait_until="networkidle", timeout=60000)
-            
             try:
-                # Login
+                print("🌐 Caricamento Lords & Knights...")
+                page.goto("https://www.lordsandknights.com/", wait_until="networkidle", timeout=60000)
+                
+                # Inserimento credenziali
                 page.fill('input[placeholder="Email"]', email)
                 page.fill('input[placeholder="Password"]', password)
                 page.click('button:has-text("LOG IN")')
                 
-                # Attesa stabilizzazione pagina mondi
-                print("⏳ Attesa comparsa mondi...")
+                # Attesa della lista mondi
                 selector_mondo = ".button-game-world--title:has-text('Italia VI')"
+                print("⏳ Attesa comparsa mondi...")
                 page.wait_for_selector(selector_mondo, timeout=30000)
                 
-                # Doppio tentativo di click per sicurezza
+                # Click forzato e ripetuto
                 print("🎯 Click su Italia VI...")
-                page.locator(selector_mondo).first.click(force=True)
-                time.sleep(2)
+                world_button = page.locator(selector_mondo).first
+                world_button.click(force=True)
+                time.sleep(3)
+                
+                # Se non ha ancora il SID, prova il click via JavaScript
                 if not auth_data["sid"]:
-                    page.locator(selector_mondo).first.dispatch_event("click")
+                    print("🔄 Tentativo click JavaScript...")
+                    world_button.evaluate("node => node.click()")
 
-                # Loop di attesa rinforzato
-                for i in range(45):
+                # Loop di attesa finale
+                for i in range(30):
                     if auth_data["sid"]:
                         sid_final = auth_data["sid"]
-                        print(f"✅ Sessione agganciata: {sid_final[:10]}")
                         browser.close()
                         return RePanzaClient(sid_final)
-                    if i % 10 == 0 and i > 0:
-                        print("🔄 Ancora in attesa del pacchetto login.xhr...")
+                    if i % 5 == 0:
+                        print(f"📡 In attesa del pacchetto... ({i}s)")
                     time.sleep(1)
-            
+                
+                # Se fallisce, salva lo screenshot per capire perché
+                print("❌ Fallimento. Salvo screenshot di debug...")
+                page.screenshot(path="debug_login_error.png")
+                
             except Exception as e:
-                print(f"⚠️ Errore durante la sequenza: {e}")
+                print(f"⚠️ Errore critico: {e}")
+                page.screenshot(path="debug_crash.png")
             
             browser.close()
             return None
