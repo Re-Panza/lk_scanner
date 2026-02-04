@@ -9,8 +9,8 @@ class RePanzaClient:
 
     @staticmethod
     def auto_login(email, password_hash):
-        device_id = os.getenv('LK_DEVICE_ID')
-        # User Agent specifico dal tuo curl (Nexus 5 Emulator)
+        # Utilizziamo il DeviceID estratto dal tuo curl browser
+        device_id = os.getenv('LK_DEVICE_ID', 'b3d3d6a165b29d1310097d30c81783abefdeee1b140025b9e3abff2077605e58')
         user_agent = "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Mobile Safari/537.36"
         
         headers = {
@@ -24,39 +24,38 @@ class RePanzaClient:
             'XYClient-PlatformLanguage': 'it'
         }
 
-        # STEP 1: Check Valid Login
-        login_url = "https://login.lordsandknights.com/XYRALITY/WebObjects/BKLoginServer.woa/wa/LoginAction/checkValidLoginBrowser"
+        session = requests.Session()
+        # Payload standard basato sulla tua sessione attiva
         payload = {
             'login': email,
             'password': password_hash,
-            'worldId': 'null',
-            'deviceId': device_id,
-            'apiVersion': '1.0',
-            'platform': 'browser'
+            'worldId': '327',
+            'logoutUrl': 'http://lordsandknights.com/',
+            'deviceId': device_id
         }
 
-        session = requests.Session() # Usiamo una sessione per gestire i cookie (playerID, loginID)
         try:
             print(f"📡 Step 1: Validazione iniziale per {email}...")
-            res1 = session.post(login_url, data=payload, headers=headers)
-            
-            # STEP 2: Ottenere il Token dal Backend 3 (come visto nel tuo curl)
-            token_url = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-RE-IT-6.woa/wa/LoginAction/token"
-            payload['worldId'] = '327'
+            # Chiamata al Login Server centrale
+            session.post("https://login.lordsandknights.com/XYRALITY/WebObjects/BKLoginServer.woa/wa/LoginAction/checkValidLoginBrowser", data=payload, headers=headers)
             
             print("📡 Step 2: Recupero Token dal Backend3...")
-            res2 = session.post(token_url, data=payload, headers=headers)
-            data = plistlib.loads(res2.content)
+            # Endpoint specifico per il Mondo 327 su Backend 3
+            token_url = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-RE-IT-6.woa/wa/LoginAction/token"
+            response = session.post(token_url, data=payload, headers=headers)
             
-            sid = data.get('sessionID')
-            if sid:
-                print(f"✅ LOGIN COMPLETATO! Sessione Mondo 327 attiva.")
-                # Endpoint per i ranking su Backend 3
-                world_url = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-RE-IT-6.woa/wa/PlayerAction"
-                return RePanzaClient(sid, world_url)
-            
-            print(f"❌ Fallito: {data.get('localized', 'Errore sequenza login')}")
+            try:
+                data = plistlib.loads(response.content)
+                sid = data.get('sessionID')
+                if sid:
+                    print(f"✅ LOGIN COMPLETATO! Sessione Mondo 327 attiva.")
+                    world_url = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-RE-IT-6.woa/wa/PlayerAction"
+                    return RePanzaClient(sid, world_url)
+                else:
+                    print(f"❌ Fallito: {data.get('localized', 'Dati sessione non trovati')}")
+            except Exception:
+                print(f"💥 Errore: Risposta server non valida (Formato non PLIST).")
             return None
         except Exception as e:
-            print(f"💥 Errore: {e}")
+            print(f"💥 Errore tecnico: {e}")
             return None
