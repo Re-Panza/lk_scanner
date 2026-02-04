@@ -1,64 +1,51 @@
-import requests
-import plistlib
+from playwright.sync_api import sync_playwright
 import os
+import time
 
 class RePanzaClient:
-    def __init__(self, session_id, base_url):
+    def __init__(self, session_id):
         self.session_id = session_id
-        self.base_url = base_url
+        self.base_url = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-RE-IT-6.woa/wa/PlayerAction"
 
     @staticmethod
-    def auto_login(email, password_hash):
-        # Questi dati ora vivono su GitHub, non sul tuo PC
-        device_id = os.getenv('LK_DEVICE_ID')
-        
-        headers = {
-            'Accept': 'application/x-bplist',
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Mobile Safari/537.36',
-            'XYClient-Capabilities': 'base%2Cfortress%2Ccity%2Cparti%D0%B0l%CE%A4ran%D1%95its%2Cstarterpack%2CrequestInformation%2CpartialUpdate%2Cregions%2Cmetropolis',
-            'XYClient-Client': 'lk_b_3',
-            'XYClient-Loginclient': 'Chrome',
-            'XYClient-Loginclientversion': '10.8.0',
-            'XYClient-Platform': 'browser',
-            'XYClient-PlatformLanguage': 'it'
-        }
+    def auto_login(email, password):
+        with sync_playwright() as p:
+            # Avviamo il browser simulando un utente reale
+            browser = p.chromium.launch(headless=True) 
+            context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36")
+            page = context.new_page()
 
-        session = requests.Session()
-        payload = {
-            'login': email,
-            'password': password_hash,
-            'worldId': '327',
-            'deviceId': device_id,
-            'apiVersion': '1.0',
-            'platform': 'browser'
-        }
+            print(f"🌐 Caricamento pagina di gioco...")
+            page.goto("https://www.lordsandknights.com/", wait_until="networkidle")
+            
+            try:
+                # Aspettiamo che il gioco carichi i campi di testo
+                page.wait_for_selector('input[type="email"]', timeout=15000)
+                
+                print(f"⌨️ Inserimento credenziali per {email}...")
+                page.fill('input[type="email"]', email)
+                time.sleep(1) # Pausa umana
+                page.fill('input[type="password"]', password)
+                time.sleep(1)
+                
+                print("🖱️ Click sul tasto Login...")
+                # Cerchiamo il bottone di login specifico
+                page.click('button[type="submit"], .login-button, button:has-text("Login")')
 
-        try:
-            # Step 1: Validazione
-            session.post("https://login.lordsandknights.com/XYRALITY/WebObjects/BKLoginServer.woa/wa/LoginAction/checkValidLoginBrowser", data=payload, headers=headers)
+                print("⏳ Attesa generazione SessionID dal server...")
+                # Aspettiamo 15 secondi per dare tempo ai Blob e ai Token di arrivare
+                time.sleep(15)
+
+                # Controlliamo i cookie per trovare il sessionID
+                cookies = context.cookies()
+                session_id = next((c['value'] for c in cookies if c['name'] == 'sessionID'), None)
+
+                if session_id:
+                    print(f"✅ SESSIONE AGGANCIATA: {session_id[:8]}...")
+                    return RePanzaClient(session_id)
+                
+            except Exception as e:
+                print(f"💥 Errore durante l'interazione: {e}")
             
-            # Step 2: Token
-            token_url = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-RE-IT-6.woa/wa/LoginAction/token"
-            res = session.post(token_url, data=payload, headers=headers)
-            
-            data = plistlib.loads(res.content)
-            sid = data.get('sessionID')
-            
-            if sid:
-                print(f"✅ Login automatico riuscito! Sessione: {sid[:8]}")
-                world_url = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-RE-IT-6.woa/wa/PlayerAction"
-                return RePanzaClient(sid, world_url)
-            
-            print(f"❌ Errore login: {data.get('localized', 'Credenziali errate')}")
+            browser.close()
             return None
-        except Exception as e:
-            print(f"💥 Errore tecnico: {e}")
-            return None
-
-    def fetch_rankings(self, offset=0, limit=50):
-        params = {'sessionID': self.session_id, 'offset': offset, 'limit': limit}
-        try:
-            res = requests.get(f"{self.base_url}/rankings", params=params, timeout=20)
-            return plistlib.loads(res.content) if res.status_code == 200 else None
-        except: return None
