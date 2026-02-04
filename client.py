@@ -4,8 +4,10 @@ import os
 import requests
 
 class RePanzaClient:
-    def __init__(self, session_id):
+    def __init__(self, session_id, cookies, user_agent):
         self.session_id = session_id
+        self.cookies = cookies
+        self.user_agent = user_agent
 
     @staticmethod
     def send_telegram_alert(message):
@@ -15,15 +17,17 @@ class RePanzaClient:
             try:
                 requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
                             data={"chat_id": chat_id, "text": message}, timeout=5)
-            except Exception as e:
-                print(f"⚠️ Errore Telegram: {e}")
+            except: pass
 
     @staticmethod
     def auto_login(email, password):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            context = browser.new_context(viewport={'width': 1280, 'height': 720})
+            # Definiamo un User Agent fisso per coerenza tra Login e API
+            ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+            context = browser.new_context(viewport={'width': 1280, 'height': 720}, user_agent=ua)
             page = context.new_page()
+            
             capture = {"sid": None}
 
             def intercept_response(response):
@@ -33,7 +37,6 @@ class RePanzaClient:
                         for c in cookies:
                             if c['name'] == 'sessionID':
                                 capture["sid"] = c['value']
-                                print(f"✅ SID INTERCETTATO: {capture['sid'][:10]}...")
                     except: pass
 
             page.on("response", intercept_response)
@@ -46,29 +49,35 @@ class RePanzaClient:
                 page.fill('input[placeholder="Password"]', password)
                 page.click('button:has-text("LOG IN")')
                 
-                # Locator specifici per evitare conflitti
+                # Logica per Italia VI (IT-6)
                 selector_mondo = page.locator(".button-game-world--title:has-text('Italia VI')").first
                 selector_ok = page.locator("button:has-text('OK')")
                 
+                print("⏳ Attesa accesso mondo...")
                 for i in range(120):
+                    # Gestione Manutenzione
                     if selector_ok.is_visible():
-                        print("🛠️ Manutenzione rilevata. Premo OK...")
                         selector_ok.click()
-                        time.sleep(2)
+                        time.sleep(1)
                     
+                    # Ingresso Mondo
                     if selector_mondo.is_visible():
-                        print("🎯 Italia VI trovato. Entro...")
                         selector_mondo.click(force=True)
                         selector_mondo.evaluate("node => node.click()")
                     
+                    # Se abbiamo il SID, catturiamo TUTTO e usciamo
                     if capture["sid"]:
+                        all_cookies = context.cookies()
                         sid_final = capture["sid"]
+                        print(f"✅ Login Successo! Catturati {len(all_cookies)} cookie.")
                         browser.close()
-                        return RePanzaClient(sid_final)
+                        # Restituiamo l'oggetto Client completo
+                        return RePanzaClient(sid_final, all_cookies, ua)
                     
                     time.sleep(1)
+                
             except Exception as e:
-                print(f"⚠️ Errore: {e}")
+                print(f"⚠️ Errore Login: {e}")
             
             browser.close()
             return None
