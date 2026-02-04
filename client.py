@@ -25,8 +25,8 @@ class RePanzaClient:
             context = browser.new_context(viewport={'width': 1280, 'height': 720})
             page = context.new_page()
             
-            # Usiamo un dizionario per condividere il dato tra le funzioni
-            state = {"sid": None}
+            # Oggetto condiviso per catturare il SID
+            capture = {"sid": None}
 
             def intercept_response(response):
                 if "login" in response.url and response.status == 200:
@@ -34,8 +34,9 @@ class RePanzaClient:
                         cookies = context.cookies()
                         for cookie in cookies:
                             if cookie['name'] == 'sessionID':
-                                state["sid"] = cookie['value']
-                                print(f"✅ SID INTERCETTATO: {state['sid'][:8]}...")
+                                capture["sid"] = cookie['value']
+                                # Stampiamo il successo subito nel log
+                                print(f"✅ SID INTERCETTATO: {capture['sid'][:10]}...")
                     except:
                         pass
 
@@ -55,23 +56,25 @@ class RePanzaClient:
                 print("🎯 Click su Italia VI...")
                 world_button = page.locator(selector_mondo).first
                 world_button.click(force=True)
-                
-                # Secondo click di rinforzo via JS per velocizzare il server
-                world_button.evaluate("node => node.click()")
+                world_button.evaluate("node => node.click()") # Click JS di rinforzo
 
-                # Aspettiamo fino a 60 secondi, ma usciamo appena abbiamo il SID
+                # CICLO DI ATTESA INTELLIGENTE
                 for i in range(60):
-                    if state["sid"]:
-                        sid_final = state["sid"]
+                    if capture["sid"]:
+                        # Vittoria! Restituiamo il client ed usciamo
+                        sid_final = capture["sid"]
                         browser.close()
                         return RePanzaClient(sid_final)
+                    
+                    if i % 10 == 0 and i > 0:
+                        print(f"📡 In attesa del SID... ({i}s)")
                     time.sleep(1)
                 
-                print("❌ Timeout scaduto prima della cattura.")
-                page.screenshot(path="debug_timeout.png")
+                print("❌ Errore: Il SID è arrivato troppo tardi o non è stato trovato.")
+                page.screenshot(path="debug_final_fail.png")
                 
             except Exception as e:
-                print(f"⚠️ Errore: {e}")
+                print(f"⚠️ Errore critico: {e}")
             
             browser.close()
             return None
