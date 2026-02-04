@@ -1,52 +1,63 @@
-name: RePanza Oracle Scan
+import os
+import json
+import requests
+import time
+from client import RePanzaClient
 
-on:
-  workflow_dispatch: # Permette di avviarlo manualmente dalla tab Actions
-  schedule:
-    - cron: '0 12 * * *' # Gira ogni giorno alle 12:00
+def run_scanner():
+    EMAIL = os.getenv("LK_EMAIL")
+    PASSWORD = os.getenv("LK_PASSWORD")
+    
+    # 1. Login e cattura SID
+    client = RePanzaClient.auto_login(EMAIL, PASSWORD)
+    if not client:
+        return
 
-jobs:
-  scan:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # Serve per salvare il database nella repo
+    # 2. Configurazione API
+    url_ranking = "https://backend3.lordsandknights.com/XYRALITY/WebObjects/LKWorldServer-RE-IT-6.woa/wa/PlayerAction/getRanking"
+    all_players = []
+    offset = 0
+    step = 100
+    
+    print(f"🚀 SID Preso! Scarico classifica via API diretta...")
+    time.sleep(5) # Aspettiamo 5 secondi per stabilizzare la sessione
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    while True:
+        try:
+            params = {"sessionID": client.session_id, "offset": offset, "count": step, "rankingType": 0}
+            response = requests.get(url_ranking, params=params, timeout=20)
+            
+            # Controllo se la risposta è un JSON valido
+            try:
+                data = response.json()
+            except ValueError:
+                print(f"❌ Errore API: Ricevuti dati non validi dall'offset {offset}. Interrompo.")
+                break
+            
+            players = data.get('allRankings', [])
+            if not players:
+                break
+            
+            all_players.extend(players)
+            print(f"📥 Scaricati {len(all_players)} player...")
+            
+            if len(players) < step:
+                break
+            
+            offset += step
+            time.sleep(0.5)
+            
+        except Exception as e:
+            print(f"⚠️ Errore durante la scansione: {e}")
+            break
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
+    # 3. Salvataggio Database
+    if all_players:
+        with open("database_classificamondo327.json", "w", encoding="utf-8") as f:
+            json.dump(all_players, f, indent=4, ensure_ascii=False)
+        RePanzaClient.send_telegram_alert(f"✅ Scansione completata: {len(all_players)} player salvati.")
+    else:
+        print("⚠️ Nessun dato salvato.")
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install playwright requests
-          playwright install chromium --with-deps
-
-      - name: Run RePanza Scanner
-        env:
-          LK_EMAIL: ${{ secrets.LK_EMAIL }}
-          LK_PASSWORD: ${{ secrets.LK_PASSWORD }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python main.py
-
-      - name: Commit and Push Database
-        if: success() # Lo fa solo se lo scanner finisce bene
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "RePanza_Oracle_Bot"
-          git add database_classificamondo327.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "📊 Database aggiornato" && git push)
-
-      - name: Upload Debug Artifacts
-        if: always() # CARICA LO SCREENSHOT ANCHE SE FALLISCE
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-results
-          path: |
-            debug_*.png
-            database_classificamondo327.json
+if __name__ == "__main__":
+    run_scanner()
