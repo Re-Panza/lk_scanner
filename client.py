@@ -22,9 +22,10 @@ class RePanzaClient:
     @staticmethod
     def auto_login(email, password):
         with sync_playwright() as p:
+            # Usiamo lo stesso User-Agent del tuo CURL per coerenza totale
+            ua = "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Mobile Safari/537.36"
+            
             browser = p.chromium.launch(headless=True)
-            # Definiamo un User Agent fisso per coerenza tra Login e API
-            ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
             context = browser.new_context(viewport={'width': 1280, 'height': 720}, user_agent=ua)
             page = context.new_page()
             
@@ -49,29 +50,25 @@ class RePanzaClient:
                 page.fill('input[placeholder="Password"]', password)
                 page.click('button:has-text("LOG IN")')
                 
-                # Logica per Italia VI (IT-6)
+                # Logica per Italia VI
                 selector_mondo = page.locator(".button-game-world--title:has-text('Italia VI')").first
                 selector_ok = page.locator("button:has-text('OK')")
                 
                 print("⏳ Attesa accesso mondo...")
                 for i in range(120):
-                    # Gestione Manutenzione
                     if selector_ok.is_visible():
                         selector_ok.click()
                         time.sleep(1)
                     
-                    # Ingresso Mondo
                     if selector_mondo.is_visible():
                         selector_mondo.click(force=True)
                         selector_mondo.evaluate("node => node.click()")
                     
-                    # Se abbiamo il SID, catturiamo TUTTO e usciamo
                     if capture["sid"]:
                         all_cookies = context.cookies()
                         sid_final = capture["sid"]
                         print(f"✅ Login Successo! Catturati {len(all_cookies)} cookie.")
                         browser.close()
-                        # Restituiamo l'oggetto Client completo
                         return RePanzaClient(sid_final, all_cookies, ua)
                     
                     time.sleep(1)
