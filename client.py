@@ -11,7 +11,6 @@ class RePanzaClient:
     def auto_login(email, password):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            # Usiamo un'identità più simile a un browser desktop per evitare il blocco "Connect with Facebook"
             context = browser.new_context(viewport={'width': 1280, 'height': 720})
             page = context.new_page()
 
@@ -19,24 +18,30 @@ class RePanzaClient:
             page.goto("https://www.lordsandknights.com/", wait_until="networkidle")
             
             try:
-                # 1. Inserimento credenziali
+                # 1. Fase Login
                 page.wait_for_selector('input[placeholder="Email"]', timeout=20000)
                 page.fill('input[placeholder="Email"]', email)
                 page.fill('input[placeholder="Password"]', password)
-                
-                # 2. Click e attesa navigazione
-                print("🖱️ Click sul tasto LOG IN e attesa risposta server...")
+                print("🖱️ Click sul tasto LOG IN...")
                 page.click('button:has-text("LOG IN")')
                 
-                # Aspettiamo che il caricamento finisca (il gioco è pesante)
-                time.sleep(20) 
+                # 2. Fase Selezione Mondo
+                print("⏳ Attesa caricamento lista mondi...")
+                # Aspettiamo che appaia il testo "Italia VI" che vediamo nello screenshot
+                page.wait_for_selector('text="Italia VI"', timeout=30000)
+                
+                print("🏰 Selezione Mondo: Italia VI (IT)...")
+                # Clicchiamo esattamente sulla riga del mondo
+                page.click('text="Italia VI"')
+                
+                # Aspettiamo il caricamento del gioco vero e proprio
+                print("⏳ Entrata nel mondo in corso...")
+                time.sleep(15)
 
-                # 3. Controllo Sessione in vari posti (Cookie o LocalStorage)
+                # 3. Estrazione Sessione
                 cookies = context.cookies()
-                # Cerchiamo il cookie sessionID
                 sid = next((c['value'] for c in cookies if c['name'] == 'sessionID'), None)
                 
-                # Se non è nei cookie, potrebbe essere nel LocalStorage del browser
                 if not sid:
                     sid = page.evaluate("localStorage.getItem('sessionID')")
 
@@ -44,13 +49,12 @@ class RePanzaClient:
                     print(f"✅ SESSIONE AGGANCIATA: {sid[:8]}...")
                     return RePanzaClient(sid)
                 
-                # Se fallisce ancora, salviamo cosa vede il bot dopo il login
-                page.screenshot(path="debug_after_login_attempt.png")
-                print("❌ Sessione non trovata dopo 20s. Forse serve un secondo click?")
+                page.screenshot(path="debug_after_world_select.png")
+                print("❌ Mondo selezionato ma sessione non trovata.")
                 
             except Exception as e:
-                print(f"💥 Errore: {e}")
-                page.screenshot(path="debug_login_error.png")
+                print(f"💥 Errore durante la navigazione: {e}")
+                page.screenshot(path="debug_error.png")
             
             browser.close()
             return None
