@@ -11,7 +11,6 @@ class RePanzaClient:
     def auto_login(email, password):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            # Manteniamo la risoluzione fissa dello screenshot
             context = browser.new_context(viewport={'width': 1280, 'height': 720})
             page = context.new_page()
 
@@ -24,36 +23,33 @@ class RePanzaClient:
                 page.fill('input[placeholder="Password"]', password)
                 page.click('button:has-text("LOG IN")')
                 
-                # 2. Attesa caricamento lista mondi
-                print("⏳ Attesa comparsa schermata mondi (12s)...")
+                # 2. Selezione Mondo (Mira confermata X:300, Y:230)
+                print("⏳ Attesa schermata mondi...")
                 time.sleep(12)
-                
-                # 3. CLICK A COORDINATE CORRETTE
-                # Basandoci sullo screenshot, il box di Italia VI è largo. 
-                # Proviamo un punto più centrale nel box: X=300, Y=230
-                print("🎯 Lancio click balistico su Italia VI (X:300, Y:230)...")
-                
-                # Muoviamo prima il mouse (simula l'hover) e poi clicchiamo
-                page.mouse.move(300, 230)
-                time.sleep(1)
                 page.mouse.click(300, 230)
+                print("🖱️ Click su Italia VI inviato!")
                 
-                print("🖱️ Click inviato!")
+                # 3. Attesa Caricamento Gioco
+                print("🏰 Entrata nel castello... Attesa caricamento mappa (25s)...")
+                # Aumentiamo l'attesa perché la mappa è pesante
+                time.sleep(25) 
                 
-                # 4. Verifica Sessione
-                print("⏳ Entrata nel mondo...")
-                time.sleep(15)
+                # Facciamo uno screenshot della mappa per conferma
+                page.screenshot(path="debug_mappa_gioco.png")
 
+                # 4. Estrazione Sessione Post-Caricamento
+                print("🔑 Tentativo recupero sessione attiva...")
                 cookies = context.cookies()
                 sid = next((c['value'] for c in cookies if c['name'] == 'sessionID'), None)
                 
                 if sid:
                     print(f"✅ SESSIONE AGGANCIATA: {sid[:8]}...")
+                    # Salviamo la sessione in un file locale per gli usi futuri del Brain
+                    with open("session.txt", "w") as f:
+                        f.write(sid)
                     return RePanzaClient(sid)
                 
-                # Salviamo uno screenshot per capire dove ha cliccato effettivamente
-                page.screenshot(path="debug_mouse_click.png")
-                print("❌ Sessione non trovata. Controlla debug_mouse_click.png")
+                print("❌ Mappa caricata ma sessione non trovata nei cookie.")
                 
             except Exception as e:
                 print(f"💥 Errore: {e}")
