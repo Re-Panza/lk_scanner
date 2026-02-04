@@ -2,8 +2,8 @@ name: Re Panza Brain - Daily Scan 327
 
 on:
   schedule:
-    - cron: '0 4 * * *' # Parte da solo ogni mattina alle 04:00
-  workflow_dispatch: # Ti permette di farlo partire a mano quando vuoi
+    - cron: '0 4 * * *' # Parte in automatico ogni mattina alle 04:00
+  workflow_dispatch: # Ti permette di lanciarlo a mano per i test
 
 jobs:
   scan:
@@ -24,13 +24,22 @@ jobs:
 
       - name: Install Playwright Browsers
         run: |
-          # Questo scarica il browser Chrome reale dentro GitHub
+          # Scarica il browser Chrome reale dentro i server di GitHub
           playwright install chromium --with-deps
 
       - name: Run Scanner
         env:
-          # Assicurati che questi nomi corrispondano ai tuoi Secrets
+          # Mappatura dei Secrets di GitHub nelle variabili Python
           LK_EMAIL: ${{ secrets.LK_EMAIL }}
-          LK_PASSWORD: ${{ secrets.LK_PASSWORD }} 
+          LK_PASSWORD: ${{ secrets.LK_PASSWORD }}
           LK_DEVICE_ID: ${{ secrets.LK_DEVICE_ID }}
         run: python main.py
+
+      - name: Upload Debug Screenshot
+        # Questo passaggio viene eseguito solo se lo script fallisce
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshot
+          path: debug_login.png
+          retention-days: 1
