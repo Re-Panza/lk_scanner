@@ -10,8 +10,8 @@ class RePanzaClient:
     @staticmethod
     def auto_login(email, password):
         with sync_playwright() as p:
-            # Browser con finestra fissa 1280x720
             browser = p.chromium.launch(headless=True)
+            # Manteniamo la risoluzione fissa dello screenshot
             context = browser.new_context(viewport={'width': 1280, 'height': 720})
             page = context.new_page()
 
@@ -19,26 +19,26 @@ class RePanzaClient:
             page.goto("https://www.lordsandknights.com/", wait_until="networkidle")
             
             try:
-                # 1. Login veloce
+                # 1. Login
                 page.fill('input[placeholder="Email"]', email)
                 page.fill('input[placeholder="Password"]', password)
                 page.click('button:has-text("LOG IN")')
                 
                 # 2. Attesa caricamento lista mondi
-                print("⏳ Attesa comparsa schermata mondi (10s)...")
-                time.sleep(10)
+                print("⏳ Attesa comparsa schermata mondi (12s)...")
+                time.sleep(12)
                 
-                # 3. CLICK A COORDINATE ESATTE (Bypass visibilità)
-                # Nello screenshot 1280x720, Italia VI è nel primo box in alto a sinistra.
-                # X: 150 (leggermente a destra del margine), Y: 230 (altezza del primo box)
-                print("🎯 Lancio click balistico su coordinate X:150, Y:230...")
-                page.mouse.click(150, 230)
+                # 3. CLICK A COORDINATE CORRETTE
+                # Basandoci sullo screenshot, il box di Italia VI è largo. 
+                # Proviamo un punto più centrale nel box: X=300, Y=230
+                print("🎯 Lancio click balistico su Italia VI (X:300, Y:230)...")
                 
-                # Proviamo anche un secondo click leggermente più in basso per sicurezza
+                # Muoviamo prima il mouse (simula l'hover) e poi clicchiamo
+                page.mouse.move(300, 230)
                 time.sleep(1)
-                page.mouse.click(150, 250)
+                page.mouse.click(300, 230)
                 
-                print("🖱️ Click inviati fisicamente alla zona 'Italia VI'!")
+                print("🖱️ Click inviato!")
                 
                 # 4. Verifica Sessione
                 print("⏳ Entrata nel mondo...")
@@ -48,16 +48,16 @@ class RePanzaClient:
                 sid = next((c['value'] for c in cookies if c['name'] == 'sessionID'), None)
                 
                 if sid:
-                    print(f"✅ SESSIONE CATTURATA: {sid[:8]}...")
+                    print(f"✅ SESSIONE AGGANCIATA: {sid[:8]}...")
                     return RePanzaClient(sid)
                 
-                # Screenshot per vedere se il mouse ha colpito il punto giusto
+                # Salviamo uno screenshot per capire dove ha cliccato effettivamente
                 page.screenshot(path="debug_mouse_click.png")
-                print("❌ Il click alle coordinate non ha generato una sessione.")
+                print("❌ Sessione non trovata. Controlla debug_mouse_click.png")
                 
             except Exception as e:
-                print(f"💥 Errore tecnico: {e}")
-                page.screenshot(path="debug_crash.png")
+                print(f"💥 Errore: {e}")
+                page.screenshot(path="debug_error.png")
             
             browser.close()
             return None
