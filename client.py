@@ -4,12 +4,10 @@ import plistlib
 class RePanzaClient:
     def __init__(self, session_id):
         self.session_id = session_id
-        # Endpoint specifico Mondo 327
         self.base_url = "https://lx-game.lordsandknights.com/XYRALITY/WebObjects/BKGameServer-327.woa/wa/PlayerAction"
 
     @staticmethod
     def auto_login(email, password_hash):
-        """Simula il login usando l'hash catturato o calcolato"""
         login_url = "https://login.lordsandknights.com/XYRALITY/WebObjects/BKLoginServer.woa/wa/LoginAction/checkValidLoginBrowser"
         
         payload = {
@@ -21,14 +19,14 @@ class RePanzaClient:
             'platform': 'browser'
         }
         
-        # Header estratti da Charles Proxy
+        # Header "clonati" dal bot funzionante tramite Charles
         headers = {
             'Accept': 'application/x-bplist',
             'Content-Type': 'application/x-www-form-urlencoded',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.146 Safari/537.36',
             'XYClient-Client': 'lk_b_3',
             'XYClient-Loginclient': 'Chrome',
-            'XYClient-Loginclientversion': '8.7.0',
+            'XYClient-Loginclientversion': '8.7.0', # Versione specifica vista in Charles
             'XYClient-Platform': 'browser',
             'XYClient-PlatformLanguage': 'en'
         }
@@ -44,7 +42,7 @@ class RePanzaClient:
                     print("✅ LOGIN SUCCESSO!")
                     return RePanzaClient(sid)
                 else:
-                    print(f"❌ Login rifiutato: {data.get('localized', 'Verifica credenziali')}")
+                    print(f"❌ Login rifiutato: Verifica credenziali")
             return None
         except Exception as e:
             print(f"💥 Errore tecnico: {e}")
