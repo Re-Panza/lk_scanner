@@ -4,18 +4,18 @@ import plistlib
 class RePanzaClient:
     def __init__(self, session_id):
         self.session_id = session_id
+        # Endpoint specifico Mondo 327
         self.base_url = "https://lx-game.lordsandknights.com/XYRALITY/WebObjects/BKGameServer-327.woa/wa/PlayerAction"
 
     @staticmethod
     def auto_login(email, password_hash):
-        """Mirroring perfetto basato sui dati Charles Proxy"""
+        """Simula il login usando l'hash catturato o calcolato"""
         login_url = "https://login.lordsandknights.com/XYRALITY/WebObjects/BKLoginServer.woa/wa/LoginAction/checkValidLoginBrowser"
         
         payload = {
             'login': email,
             'password': password_hash,
             'worldId': '327',
-            # Usa il deviceId del browser o quello visto nel software se diverso
             'deviceId': '0cfb112df2c7e5eb34ad351eb4123f4b398ad9447ddfe36e41ce1f85f26a27ca',
             'apiVersion': '1.0',
             'platform': 'browser'
@@ -44,17 +44,8 @@ class RePanzaClient:
                     print("✅ LOGIN SUCCESSO!")
                     return RePanzaClient(sid)
                 else:
-                    print(f"❌ Login rifiutato: {data.get('localized', 'Verifica Hash e DeviceID')}")
+                    print(f"❌ Login rifiutato: {data.get('localized', 'Verifica credenziali')}")
             return None
         except Exception as e:
             print(f"💥 Errore tecnico: {e}")
-            return None
-
-    def fetch_rankings(self, offset=0, limit=50):
-        params = {'sessionID': self.session_id, 'offset': offset, 'limit': limit}
-        headers = {'Accept': 'application/x-bplist', 'User-Agent': 'lk_b_3'}
-        try:
-            response = requests.get(f"{self.base_url}/rankings", params=params, headers=headers, timeout=20)
-            return plistlib.loads(response.content) if response.status_code == 200 else None
-        except Exception:
             return None
