@@ -1,9 +1,9 @@
-name: RePanza Oracle Scan
+name: Unified World Scan (6h)
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: '0 0 */4 * *'
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
 
 jobs:
   scan:
@@ -26,25 +26,18 @@ jobs:
           pip install playwright requests
           playwright install chromium --with-deps
 
-      - name: Run RePanza Scanner
+      - name: Run Unified Scanner
         env:
           LK_EMAIL: ${{ secrets.LK_EMAIL }}
           LK_PASSWORD: ${{ secrets.LK_PASSWORD }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python main.py
+        run: python unified_scanner.py
 
-      - name: Commit and Push Database
+      - name: Commit and Push Results
         if: always()
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "RePanza_Oracle_Bot"
-          git add database_classificamondo327.json || true
-          git diff --quiet && git diff --staged --quiet || (git commit -m "📊 Database aggiornato" && git push)
-
-      - name: Upload Debug Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-results
-          path: debug_*.png
+          git config --local user.email "bot@repanza.it"
+          git config --local user.name "Re Panza Unified Bot"
+          git add database_mondo_327.json cronologia_327.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "📊 Unified Scan: $(date)" && git push)
