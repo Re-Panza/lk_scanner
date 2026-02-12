@@ -33,11 +33,11 @@ jobs:
         run: python unified_scanner.py
 
       - name: Upload Debug Screenshots
-        if: always() 
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: debug-screenshots
-          path: *.png
+          path: '*.png'
           retention-days: 5
 
       - name: Commit and Push Results
@@ -45,5 +45,6 @@ jobs:
         run: |
           git config --local user.email "bot@repanza.it"
           git config --local user.name "Re Panza Unified Bot"
+          # Il comando add non fallirà più perché lo script Python ora crea i file all'avvio
           git add database_mondo_327.json cronologia_327.json
           git diff --quiet && git diff --staged --quiet || (git commit -m "📊 Unified Scan: $(date)" && git push)
