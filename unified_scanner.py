@@ -20,7 +20,6 @@ class RePanzaClient:
 
     @staticmethod
     def auto_login(email, password):
-        # 1. LOGIN CON PLAYWRIGHT
         with sync_playwright() as p:
             ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
             args = ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-setuid-sandbox', '--disable-infobars']
@@ -74,11 +73,10 @@ class RePanzaClient:
             return None
 
 def fetch_ranking(client):
-    # 2. SCARICAMENTO CLASSIFICA (Per avere i nomi)
     session = requests.Session()
     for cookie in client.cookies: session.cookies.set(cookie['name'], cookie['value'])
     
-    # HEADERS AGGIORNATI (GRAZIE AL TUO CURL)
+    # Headers precisi presi dal tuo CURL
     session.headers.update({
         'User-Agent': client.user_agent,
         'Accept': 'application/x-bplist',
@@ -132,8 +130,32 @@ def fetch_ranking(client):
     print(f"✅ Mappati {len(all_players)} nomi giocatori.")
     return all_players
 
+def enrich_db_with_names(db, player_map):
+    """
+    Funzione cruciale: Scorres tutto il database esistente e aggiunge
+    il nome giocatore (pn) se manca, usando la mappa appena scaricata.
+    """
+    count_updated = 0
+    for key, record in db.items():
+        pid = record.get('p')
+        # Se c'è un ID giocatore valido (diverso da 0) e abbiamo il suo nome in mappa
+        if pid and pid != 0:
+            nome_nuovo = player_map.get(pid, "Sconosciuto")
+            
+            # Aggiorna se manca il nome o se è "Sconosciuto" ma ora lo conosciamo
+            if 'pn' not in record or record['pn'] == "Sconosciuto":
+                if nome_nuovo != "Sconosciuto":
+                    record['pn'] = nome_nuovo
+                    count_updated += 1
+            # Aggiorna comunque per sicurezza (es. cambio nome)
+            elif record['pn'] != nome_nuovo and nome_nuovo != "Sconosciuto":
+                 record['pn'] = nome_nuovo
+                 count_updated += 1
+                 
+    print(f"♻️  Nomi applicati retroattivamente a {count_updated} castelli nel database.")
+    return db
+
 def process_tile(x, y, session, tmp_map, player_map):
-    # 3. SCARICAMENTO CASTELLI E UNIONE DATI
     url = f"{BACKEND_URL}/maps/{SERVER_ID}/{x}_{y}.jtile"
     try:
         response = session.get(url, timeout=10)
@@ -147,14 +169,12 @@ def process_tile(x, y, session, tmp_map, player_map):
                     pid = int(h['playerid'])
                     key = f"{h['mapx']}_{h['mapy']}"
                     
-                    # --- QUI INSERIAMO IL NOME ---
-                    # Se il giocatore non è nella lista, mette "Sconosciuto"
+                    # Nome giocatore dalla mappa
                     nome_giocatore = player_map.get(pid, "Sconosciuto")
-                    # -----------------------------
                     
                     tmp_map[key] = {
                         'p': pid,                   # ID Giocatore
-                        'pn': nome_giocatore,       # NOME Giocatore (ORA C'È!)
+                        'pn': nome_giocatore,       # NOME Giocatore
                         'a': int(h['allianceid']),
                         'n': h.get('name', ''),
                         'x': int(h['mapx']),
@@ -168,7 +188,6 @@ def process_tile(x, y, session, tmp_map, player_map):
     return False
 
 def run_inactivity_check(data):
-    # Calcolo inattività
     for key, h in data.items():
         if not h.get('p') or h['p'] == 0: continue
         firma = f"{h['n']}|{h['pt']}"
@@ -234,22 +253,26 @@ def run_unified_scanner():
                 for entry in data: temp_map[f"{entry['x']}_{entry['y']}"] = entry
         except: pass
 
-    print(f"🛰️ Avvio Scansione Mappa (Database: {len(temp_map)} castelli)...")
+    print(f"📂 Database caricato: {len(temp_map)} castelli.")
     
-    # Prepara sessione mappa
+    # --- NUOVO STEP: ARRICCHIMENTO ---
+    # Applichiamo subito i nomi scaricati ai dati vecchi
+    if player_map and temp_map:
+        temp_map = enrich_db_with_names(temp_map, player_map)
+    # ---------------------------------
+
+    print(f"🛰️ Avvio Scansione Mappa...")
     session = requests.Session()
     
-    # Crea lista punti caldi (coordinate da scansionare)
     punti_caldi = {}
     for entry in temp_map.values():
         tx, ty = entry['x'] // 32, entry['y'] // 32
         punti_caldi[f"{tx}_{ty}"] = (tx, ty)
 
-    # Scansiona i punti caldi e AGGIORNA i dati (inserendo i nomi)
     for tx, ty in punti_caldi.values():
         process_tile(tx, ty, session, temp_map, player_map)
 
-    # Espansione (Semplificata per brevità)
+    # Espansione (Semplificata)
     centerX, centerY = 503, 503
     if temp_map:
         vals = list(temp_map.values())
@@ -258,7 +281,6 @@ def run_unified_scanner():
             centerY = sum(e['y']//32 for e in vals) // len(vals)
 
     vuoti = 0
-    # Scansione a spirale ridotta
     for r in range(150):
         trovato = False
         xMin, xMax = centerX - r, centerX + r
@@ -280,10 +302,9 @@ def run_unified_scanner():
     temp_map = run_inactivity_check(temp_map)
     run_history_check(list(temp_map.values()), player_map, temp_map, FILE_HISTORY)
     
-    # Pulizia vecchi record (> 3 giorni)
     final_list = [v for v in temp_map.values() if v['d'] > (time.time() - 259200)]
 
-    print(f"💾 Salvataggio {len(final_list)} record con nomi aggiornati...")
+    print(f"💾 Salvataggio {len(final_list)} record COMPLETI DI NOMI...")
     with open(FILE_DATABASE, 'w', encoding='utf-8') as f:
         json.dump(final_list, f, indent=2, ensure_ascii=False)
     
