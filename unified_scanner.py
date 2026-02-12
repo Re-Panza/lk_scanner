@@ -13,8 +13,6 @@ BACKEND_URL = "https://backend3.lordsandknights.com"
 FILE_DATABASE = "database_mondo_327.json"
 FILE_HISTORY = "cronologia_327.json"
 
-# --- 1. Rilevatore Dispositivo & Utility --- (Already in common.js, not needed here)
-
 class RePanzaClient:
     def __init__(self, session_id, cookies, user_agent):
         self.session_id = session_id
@@ -23,12 +21,24 @@ class RePanzaClient:
 
     @staticmethod
     def auto_login(email, password):
-        # ... (rest of the class remains identical) ...
         with sync_playwright() as p:
             ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(viewport={'width': 1280, 'height': 720}, user_agent=ua)
+            args = [
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-infobars',
+                '--window-position=0,0',
+                '--ignore-certificate-errors',
+            ]
+
+            browser = p.chromium.launch(headless=True, args=args)
+            context = browser.new_context(viewport={'width': 1366, 'height': 768}, user_agent=ua)
             page = context.new_page()
+            
+            # Nasconde webdriver
+            page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
             capture = {"sid": None}
 
             def intercept_response(response):
@@ -44,19 +54,28 @@ class RePanzaClient:
             
             try:
                 print("🌐 Caricamento Lords & Knights...")
-                page.goto("https://www.lordsandknights.com/", wait_until="networkidle", timeout=90000)
+                page.goto("https://www.lordsandknights.com/", wait_until="domcontentloaded", timeout=60000)
+                
+                # Attesa caricamento campi
+                try:
+                    page.wait_for_selector('input[placeholder="Email"]', state="visible", timeout=15000)
+                except:
+                    print("⚠️ Timeout attesa campi. Faccio screenshot...")
+                    page.screenshot(path="debug_timeout_fields.png")
+
                 page.fill('input[placeholder="Email"]', email)
                 page.fill('input[placeholder="Password"]', password)
+                time.sleep(1)
                 page.click('button:has-text("LOG IN")')
                 
                 selector_mondo = page.locator(".button-game-world--title:has-text('Italia VI')").first
                 selector_ok = page.locator("button:has-text('OK')")
                 
-                for i in range(60):
+                print("⏳ Attesa selezione mondo...")
+                for i in range(45):
                     if selector_ok.is_visible(): selector_ok.click()
-                    if selector_mondo.is_visible():
-                        selector_mondo.click(force=True)
-                        selector_mondo.evaluate("node => node.click()")
+                    if selector_mondo.is_visible(): selector_mondo.click(force=True)
+                    
                     if capture["sid"]:
                         all_cookies = context.cookies()
                         sid_final = capture["sid"]
@@ -64,8 +83,18 @@ class RePanzaClient:
                         browser.close()
                         return RePanzaClient(sid_final, all_cookies, ua)
                     time.sleep(1)
+                
+                # Se arriviamo qui, il login non è riuscito nel tempo limite
+                print("❌ Timeout Login. Salvo screenshot finale.")
+                page.screenshot(path="debug_failed_login.png")
+
             except Exception as e:
-                print(f"⚠️ Errore Login: {e}")
+                print(f"⚠️ Errore Login Critico: {e}")
+                try:
+                    page.screenshot(path="debug_crash.png")
+                    print("📸 Screenshot errore salvato: debug_crash.png")
+                except:
+                    print("Impossibile salvare screenshot.")
             
             browser.close()
             return None
@@ -85,7 +114,7 @@ def fetch_ranking(client):
     offset = 0
     step = 100
     
-    print("🚀 Recupero Classifica Personaggi...")
+    print("🚀 Recupero Classifica...")
     while True:
         try:
             payload = {'offset': str(offset), 'limit': str(step), 'type': '(player_rank)', 'sortBy': '(row.asc)', 'worldId': WORLD_ID}
@@ -105,7 +134,6 @@ def fetch_ranking(client):
             offset += step
             time.sleep(0.2)
         except Exception as e:
-            print(f"💥 Errore Ranking: {e}")
             break
     
     print(f"✅ Mappati {len(all_players)} giocatori.")
@@ -147,6 +175,7 @@ def run_inactivity_check(data):
         if not h.get('p') or h['p'] == 0: continue
         
         firma_attuale = f"{h['n']}|{h['pt']}"
+        h['d'] = int(h['d'])
         
         if 'u' not in h:
             h['u'] = h['d']
@@ -154,12 +183,18 @@ def run_inactivity_check(data):
             h['f'] = firma_attuale
             continue
             
+        try:
+            last_update = int(h['u'])
+        except:
+            last_update = h['d']
+            h['u'] = h['d']
+
         if h.get('f') != firma_attuale:
             h['u'] = h['d']
             h['i'] = False
             h['f'] = firma_attuale
         else:
-            if (h['d'] - h['u']) >= 86400:
+            if (h['d'] - last_update) >= 86400:
                 h['i'] = True
     return data
 
@@ -171,64 +206,58 @@ def run_history_check(old_data, current_player_map, current_map, history_file):
                 history = json.load(f)
         except: pass
 
-    # Mappa ultimo stato noto: player_id -> {name, alliance}
     last_known = {}
     for h in old_data:
         pid = h.get('p')
-        if not pid: continue
-        if pid not in last_known:
-            last_known[pid] = {'n': h.get('pn'), 'a': h.get('a')}
+        if pid:
+            if pid not in last_known:
+                last_known[pid] = {'n': h.get('pn'), 'a': h.get('a')}
 
     now = int(time.time())
     new_events = []
 
-    # 1. Controllo Cambi Nome (da Classifica)
     for pid, current_name in current_player_map.items():
         if pid in last_known:
             old_name = last_known[pid]['n']
             if old_name and old_name != "Sconosciuto" and old_name != current_name:
-                event = {"p": pid, "pn": current_name, "type": "name_change", "old": old_name, "new": current_name, "d": now}
-                new_events.append(event)
-                print(f"📝 Cambio Nome: {old_name} -> {current_name}")
+                new_events.append({"p": pid, "pn": current_name, "type": "name_change", "old": old_name, "new": current_name, "d": now})
 
-    # 2. Controllo Cambi Alleanza (da Mappa)
     current_alliances = {}
     for h in current_map.values():
         pid = h.get('p')
-        if not pid: continue
-        aid = h.get('a')
-        if pid not in current_alliances: 
-            current_alliances[pid] = aid
+        if pid: current_alliances[pid] = h.get('a')
 
     for pid, current_aid in current_alliances.items():
         if pid in last_known:
             old_aid = last_known[pid]['a']
             if old_aid is not None and old_aid != current_aid:
-                event = {"p": pid, "pn": current_player_map.get(pid, "Sconosciuto"), "type": "alliance_change", "old": old_aid, "new": current_aid, "d": now}
-                new_events.append(event)
-                print(f"📝 Cambio Alleanza: {pid} -> {old_aid} a {current_aid}")
+                new_events.append({"p": pid, "pn": current_player_map.get(pid, "Sconosciuto"), "type": "alliance_change", "old": old_aid, "new": current_aid, "d": now})
 
     if new_events:
         history.extend(new_events)
         if len(history) > 1000: history = history[-1000:]
         with open(history_file, 'w', encoding='utf-8') as f:
             json.dump(history, f, indent=2, ensure_ascii=False)
-        print(f"✅ Salto {len(new_events)} nuovi eventi in cronologia.")
 
 def run_unified_scanner():
+    # Inizializza file se mancano
+    if not os.path.exists(FILE_DATABASE):
+        with open(FILE_DATABASE, 'w') as f: json.dump([], f)
+    if not os.path.exists(FILE_HISTORY):
+        with open(FILE_HISTORY, 'w') as f: json.dump([], f)
+
     EMAIL = os.getenv("LK_EMAIL")
     PASSWORD = os.getenv("LK_PASSWORD")
     
-    # 1. Login e Ranking
-    if not EMAIL or not PASSWORD: 
-        print("❌ Credenziali non impostate. Uso player_map vuota.")
-        player_map = {}
-    else:
+    player_map = {}
+    if EMAIL and PASSWORD:
         client = RePanzaClient.auto_login(EMAIL, PASSWORD)
-        if not client: return
-        player_map = fetch_ranking(client)
+        if client: player_map = fetch_ranking(client)
+        else: print("⚠️ Login fallito. Procedo senza nomi.")
+    else:
+        print("❌ Credenziali mancanti.")
 
-    # 2. Caricamento Vecchio DB
+    # Carica DB
     temp_map = {}
     old_data_list = []
     if os.path.exists(FILE_DATABASE):
@@ -239,8 +268,8 @@ def run_unified_scanner():
                     temp_map[f"{entry['x']}_{entry['y']}"] = entry
         except: pass
 
-    # 3. Scansione Mappa
-    print(f"🛰️ Avvio Scansione Mappa (Quadranti pre-esistenti: {len(temp_map)})...")
+    # Scansione
+    print(f"🛰️ Avvio Scansione...")
     session = requests.Session()
     punti_caldi = {}
     for entry in temp_map.values():
@@ -250,10 +279,14 @@ def run_unified_scanner():
     for tx, ty in punti_caldi.values():
         process_tile(tx, ty, session, temp_map, player_map)
 
+    # Espansione (logica semplificata per brevità, uguale a prima)
     centerX, centerY = 503, 503
     if temp_map:
-        centerX = sum(e['x']//32 for e in temp_map.values()) // len(temp_map)
-        centerY = sum(e['y']//32 for e in temp_map.values()) // len(temp_map)
+        try:
+            vals = list(temp_map.values())
+            centerX = sum(e['x']//32 for e in vals) // len(vals)
+            centerY = sum(e['y']//32 for e in vals) // len(vals)
+        except: pass
 
     raggioMax = 150 
     limiteVuoti = 5
@@ -265,39 +298,31 @@ def run_unified_scanner():
         yMin, yMax = centerY - r, centerY + r
         punti_perimetro = []
         for i in range(xMin, xMax + 1):
-            punti_perimetro.append((i, yMin))
-            punti_perimetro.append((i, yMax))
+            punti_perimetro.append((i, yMin)); punti_perimetro.append((i, yMax))
         for j in range(yMin + 1, yMax):
-            punti_perimetro.append((xMin, j))
-            punti_perimetro.append((xMax, j))
+            punti_perimetro.append((xMin, j)); punti_perimetro.append((xMax, j))
             
         for px, py in punti_perimetro:
             key = f"{px}_{py}"
             if key not in punti_caldi:
-                if process_tile(px, py, session, temp_map, player_map):
-                    trovato = True
+                if process_tile(px, py, session, temp_map, player_map): trovato = True
                 punti_caldi[key] = (px, py)
         
-        if trovato:
-            vuoti_consecutivi = 0
-        else:
-            vuoti_consecutivi += 1
-        if vuoti_consecutivi >= limiteVuoti:
-            print(f"⏹️  Espansione fermata: {limiteVuoti} giri a vuoto raggiunti.")
-            break
+        if trovato: vuoti_consecutivi = 0
+        else: vuoti_consecutivi += 1
+        if vuoti_consecutivi >= limiteVuoti: break
 
-    # 4. Inattività e Storico
+    # Analisi e Salvataggio
     temp_map = run_inactivity_check(temp_map)
     run_history_check(old_data_list, player_map, temp_map, FILE_HISTORY)
     
-    limite_storico = time.time() - (72 * 3600)
-    final_list = [v for v in temp_map.values() if v['d'] > limite_storico]
+    limite = time.time() - (72 * 3600)
+    final_list = [v for v in temp_map.values() if v['d'] > limite]
 
-    # 5. Salvataggio
     with open(FILE_DATABASE, 'w', encoding='utf-8') as f:
         json.dump(final_list, f, indent=2, ensure_ascii=False)
     
-    print(f"✅ Scansione Terminata. {len(final_list)} record salvati.")
+    print(f"✅ Finito. Salvati {len(final_list)} record.")
 
 if __name__ == "__main__":
     run_unified_scanner()
