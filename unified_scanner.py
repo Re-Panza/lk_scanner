@@ -4,6 +4,7 @@ import requests
 import time
 import plistlib
 import re
+import copy # Utilizzato per fare la "fotografia" del database prima della scansione
 from playwright.sync_api import sync_playwright
 
 # --- CONFIGURAZIONE ---
@@ -68,7 +69,6 @@ class RePanzaClient:
                 time.sleep(1)
                 page.click('button:has-text("LOG IN")')
                 
-                # Usa la variabile WORLD_NAME dinamicamente per il click
                 selector_mondo = page.locator(f".button-game-world--title:has-text('{WORLD_NAME}')").first
                 selector_ok = page.locator("button:has-text('OK')")
                 
@@ -98,7 +98,6 @@ def fetch_ranking(client):
     session = requests.Session()
     for cookie in client.cookies: session.cookies.set(cookie['name'], cookie['value'])
     
-    # Headers precisi presi dal tuo CURL
     session.headers.update({
         'User-Agent': client.user_agent,
         'Accept': 'application/x-bplist',
@@ -136,7 +135,6 @@ def fetch_ranking(client):
                 break
             
             for p in players:
-                # Cerca ID e NOME in tutti i campi possibili
                 pid = p.get('playerID') or p.get('p') or p.get('id')
                 name = p.get('nick') or p.get('n') or p.get('name')
                 
@@ -152,32 +150,89 @@ def fetch_ranking(client):
     print(f"✅ Mappati {len(all_players)} nomi giocatori.")
     return all_players
 
-def enrich_db_with_names(db, player_map):
-    """
-    Funzione cruciale: Scorres tutto il database esistente e aggiunge
-    il nome giocatore (pn) se manca, usando la mappa appena scaricata.
-    """
+def fetch_alliance_ranking(client):
+    session = requests.Session()
+    for cookie in client.cookies: session.cookies.set(cookie['name'], cookie['value'])
+    
+    session.headers.update({
+        'User-Agent': client.user_agent,
+        'Accept': 'application/x-bplist',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'XYClient-Client': 'lk_b_3',
+        'XYClient-Loginclient': 'Chrome',
+        'XYClient-Loginclientversion': '10.8.0',
+        'XYClient-Platform': 'browser',
+        'XYClient-Capabilities': 'base,fortress,city,parti%D0%B0l%CE%A4ran%D1%95its,starterpack,requestInformation,partialUpdate,regions,metropolis',
+        'Origin': 'https://www.lordsandknights.com',
+        'Referer': 'https://www.lordsandknights.com/'
+    })
+
+    url_ranking = f"{BACKEND_URL}/XYRALITY/WebObjects/{SERVER_ID}.woa/wa/QueryAction/allianceRanks"
+    all_alliances = {}
+    offset = 0
+    step = 100 
+    
+    print(f"🚀 Recupero Classifica Alleanze...")
+    
+    while True:
+        try:
+            payload = {'offset': str(offset), 'limit': str(step), 'type': '(alliance_rank)', 'sortBy': '(row.asc)', 'worldId': WORLD_ID}
+            response = session.post(url_ranking, data=payload, timeout=30)
+            
+            if response.status_code != 200: 
+                print(f"⚠️ Errore Ranking Alleanze HTTP: {response.status_code}")
+                break
+
+            data = plistlib.loads(response.content)
+            alliances = data.get('allianceRanks', []) or data.get('rows', [])
+            
+            if not alliances: 
+                break
+            
+            for a in alliances:
+                aid = a.get('allianceID') or a.get('a') or a.get('id')
+                name = a.get('name') or a.get('n')
+                
+                if aid: all_alliances[int(aid)] = name
+            
+            if len(alliances) < step: break
+            offset += step
+            time.sleep(0.3)
+        except Exception as e:
+            print(f"💥 Errore Ranking Alleanze: {e}")
+            break
+    
+    print(f"✅ Mappate {len(all_alliances)} alleanze.")
+    return all_alliances
+
+def enrich_db_with_names(db, player_map, alliance_map):
     count_updated = 0
     for key, record in db.items():
         pid = record.get('p')
-        # Se c'è un ID giocatore valido (diverso da 0) e abbiamo il suo nome in mappa
         if pid and pid != 0:
             nome_nuovo = player_map.get(pid, "Sconosciuto")
             
-            # Aggiorna se manca il nome o se è "Sconosciuto" ma ora lo conosciamo
             if 'pn' not in record or record['pn'] == "Sconosciuto":
                 if nome_nuovo != "Sconosciuto":
                     record['pn'] = nome_nuovo
                     count_updated += 1
-            # Aggiorna comunque per sicurezza (es. cambio nome)
             elif record['pn'] != nome_nuovo and nome_nuovo != "Sconosciuto":
                  record['pn'] = nome_nuovo
                  count_updated += 1
                  
-    print(f"♻️  Nomi applicati retroattivamente a {count_updated} castelli nel database.")
+        aid = record.get('a')
+        if aid and aid != 0:
+            nome_alleanza = alliance_map.get(aid, "")
+            if 'an' not in record or record['an'] == "":
+                if nome_alleanza:
+                    record['an'] = nome_alleanza
+            elif record['an'] != nome_alleanza and nome_alleanza != "":
+                 record['an'] = nome_alleanza
+                 
+    print(f"♻️ Nomi e Alleanze applicati retroattivamente a {count_updated} castelli nel database.")
     return db
 
-def process_tile(x, y, session, tmp_map, player_map):
+def process_tile(x, y, session, tmp_map, player_map, alliance_map):
     url = f"{BACKEND_URL}/maps/{SERVER_ID}/{x}_{y}.jtile"
     try:
         response = session.get(url, timeout=10)
@@ -191,13 +246,15 @@ def process_tile(x, y, session, tmp_map, player_map):
                     pid = int(h['playerid'])
                     key = f"{h['mapx']}_{h['mapy']}"
                     
-                    # Nome giocatore dalla mappa
                     nome_giocatore = player_map.get(pid, "Sconosciuto")
+                    aid = int(h['allianceid'])
+                    nome_alleanza = alliance_map.get(aid, "")
                     
                     tmp_map[key] = {
-                        'p': pid,                   # ID Giocatore
-                        'pn': nome_giocatore,       # NOME Giocatore
-                        'a': int(h['allianceid']),
+                        'p': pid,                   
+                        'pn': nome_giocatore,       
+                        'a': aid,
+                        'an': nome_alleanza,  # Inserito il nome alleanza sotto pn
                         'n': h.get('name', ''),
                         'x': int(h['mapx']),
                         'y': int(h['mapy']),
@@ -212,7 +269,6 @@ def process_tile(x, y, session, tmp_map, player_map):
 def run_inactivity_check(data):
     for key, h in data.items():
         if not h.get('p') or h['p'] == 0: continue
-        # Firma corretta e completa: Nome player, Alleanza, Nome castello, Punti castello
         firma = f"{h.get('pn', 'Sconosciuto')}|{h.get('a', 0)}|{h['n']}|{h['pt']}"
         h['d'] = int(h['d'])
         
@@ -226,33 +282,61 @@ def run_inactivity_check(data):
             if (h['d'] - last) >= 86400: h['i'] = True
     return data
 
-def run_history_check(old_data, current_player_map, current_map, history_file):
+def run_history_check(old_db_list, new_db_list, history_file):
     history = []
     if os.path.exists(history_file):
         try:
-            with open(history_file, 'r', encoding='utf-8') as f: history = json.load(f)
+            with open(history_file, 'r', encoding='utf-8') as f: 
+                history = json.load(f)
         except: pass
 
     last_known = {}
-    for h in old_data:
-        if h.get('p'): last_known[h['p']] = {'n': h.get('pn'), 'a': h.get('a')}
+    for h in old_db_list:
+        pid = h.get('p')
+        if pid and pid != 0:
+            if pid not in last_known:
+                last_known[pid] = {'n': h.get('pn', 'Sconosciuto'), 'a': h.get('a', 0), 'an': h.get('an', '')}
+
+    current_known = {}
+    for h in new_db_list:
+        pid = h.get('p')
+        if pid and pid != 0:
+            if pid not in current_known:
+                current_known[pid] = {'n': h.get('pn', 'Sconosciuto'), 'a': h.get('a', 0), 'an': h.get('an', '')}
 
     now = int(time.time())
     new_events = []
-    
-    if current_player_map:
-        for pid, name in current_player_map.items():
-            if pid in last_known:
-                old = last_known[pid]['n']
-                if old and old != "Sconosciuto" and old != name:
-                    new_events.append({"type": "name", "p": pid, "old": old, "new": name, "d": now})
+
+    for pid, new_data in current_known.items():
+        if pid in last_known:
+            old_data = last_known[pid]
+            
+            old_name = old_data['n']
+            new_name = new_data['n']
+            if old_name and old_name != "Sconosciuto" and new_name and new_name != "Sconosciuto" and old_name != new_name:
+                new_events.append({"type": "name", "p": pid, "old": old_name, "new": new_name, "d": now})
+                print(f"📜 CRONOLOGIA: Giocatore {pid} ha cambiato nome da '{old_name}' a '{new_name}'")
+            
+            old_ally = old_data['a']
+            new_ally = new_data['a']
+            if old_ally != new_ally:
+                new_events.append({
+                    "type": "alliance", 
+                    "p": pid, 
+                    "old": old_ally, 
+                    "new": new_ally, 
+                    "old_name": old_data['an'], 
+                    "new_name": new_data['an'], 
+                    "d": now
+                })
+                print(f"📜 CRONOLOGIA: Giocatore {pid} ha cambiato alleanza da {old_ally} ({old_data['an']}) a {new_ally} ({new_data['an']})")
 
     if new_events:
         history.extend(new_events)
-        with open(history_file, 'w', encoding='utf-8') as f: json.dump(history[-1000:], f, indent=2)
+        with open(history_file, 'w', encoding='utf-8') as f: 
+            json.dump(history[-5000:], f, indent=2)
 
 def run_unified_scanner():
-    # Inizializzazione file
     if not os.path.exists(FILE_DATABASE):
         with open(FILE_DATABASE, 'w') as f: json.dump([], f)
     
@@ -260,15 +344,16 @@ def run_unified_scanner():
     PASSWORD = os.getenv("LK_PASSWORD")
     
     player_map = {}
+    alliance_map = {}
     if EMAIL and PASSWORD:
         client = RePanzaClient.auto_login(EMAIL, PASSWORD)
         if client: 
             player_map = fetch_ranking(client)
+            alliance_map = fetch_alliance_ranking(client)
         else: 
-            print("⚠️ Login fallito. Nomi giocatori non disponibili.")
+            print("⚠️ Login fallito. Nomi giocatori e alleanze non disponibili.")
             send_telegram_alert(WORLD_NAME)
     
-    # Carica DB Esistente
     temp_map = {}
     if os.path.exists(FILE_DATABASE):
         try:
@@ -279,11 +364,11 @@ def run_unified_scanner():
 
     print(f"📂 Database caricato: {len(temp_map)} castelli.")
     
-    # --- NUOVO STEP: ARRICCHIMENTO ---
-    # Applichiamo subito i nomi scaricati ai dati vecchi
+    # --- SNAPSHOT PRE-SCANSIONE PER CRONOLOGIA ---
+    old_db_list = copy.deepcopy(list(temp_map.values()))
+
     if player_map and temp_map:
-        temp_map = enrich_db_with_names(temp_map, player_map)
-    # ---------------------------------
+        temp_map = enrich_db_with_names(temp_map, player_map, alliance_map)
 
     print(f"🛰️ Avvio Scansione Mappa...")
     session = requests.Session()
@@ -294,9 +379,8 @@ def run_unified_scanner():
         punti_caldi[f"{tx}_{ty}"] = (tx, ty)
 
     for tx, ty in punti_caldi.values():
-        process_tile(tx, ty, session, temp_map, player_map)
+        process_tile(tx, ty, session, temp_map, player_map, alliance_map)
 
-    # Espansione (Semplificata)
     centerX, centerY = 503, 503
     if temp_map:
         vals = list(temp_map.values())
@@ -315,20 +399,22 @@ def run_unified_scanner():
         
         for px, py in punti:
             if f"{px}_{py}" not in punti_caldi:
-                if process_tile(px, py, session, temp_map, player_map): trovato = True
+                if process_tile(px, py, session, temp_map, player_map, alliance_map): trovato = True
                 punti_caldi[f"{px}_{py}"] = (px, py)
         
         if trovato: vuoti = 0
         else: vuoti += 1
         if vuoti >= 5: break
 
-    # Salvataggio Finale
     temp_map = run_inactivity_check(temp_map)
-    run_history_check(list(temp_map.values()), player_map, temp_map, FILE_HISTORY)
+    
+    # --- CONTROLLO CRONOLOGIA CON DATI NUOVI ---
+    new_db_list = list(temp_map.values())
+    run_history_check(old_db_list, new_db_list, FILE_HISTORY)
     
     final_list = [v for v in temp_map.values() if v['d'] > (time.time() - 259200)]
 
-    print(f"💾 Salvataggio {len(final_list)} record COMPLETI DI NOMI...")
+    print(f"💾 Salvataggio {len(final_list)} record COMPLETI DI NOMI E ALLEANZE...")
     with open(FILE_DATABASE, 'w', encoding='utf-8') as f:
         json.dump(final_list, f, indent=2, ensure_ascii=False)
     
