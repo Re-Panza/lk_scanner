@@ -5,6 +5,7 @@ import time
 import plistlib
 import re
 import copy # Utilizzato per fare la "fotografia" del database prima della scansione
+import random # <-- Libreria aggiunta per simulare il comportamento umano
 from playwright.sync_api import sync_playwright
 
 # --- CONFIGURAZIONE ---
@@ -61,12 +62,19 @@ class RePanzaClient:
             try:
                 print("🌐 Caricamento Lords & Knights...")
                 page.goto("https://www.lordsandknights.com/", wait_until="domcontentloaded", timeout=60000)
+                
+                # Pausa casuale iniziale come un utente che guarda la pagina
+                time.sleep(random.uniform(1.5, 3.0))
+                
                 try: page.wait_for_selector('input[placeholder="Email"]', state="visible", timeout=10000)
                 except: pass
 
-                page.fill('input[placeholder="Email"]', email)
-                page.fill('input[placeholder="Password"]', password)
-                time.sleep(1)
+                # Simula digitazione umana per Email e Password
+                page.type('input[placeholder="Email"]', email, delay=random.randint(50, 150))
+                time.sleep(random.uniform(0.3, 0.8))
+                page.type('input[placeholder="Password"]', password, delay=random.randint(50, 150))
+                
+                time.sleep(random.uniform(0.5, 1.2))
                 page.click('button:has-text("LOG IN")')
                 
                 selector_mondo = page.locator(f".button-game-world--title:has-text('{WORLD_NAME}')").first
@@ -75,10 +83,14 @@ class RePanzaClient:
                 print("⏳ Attesa selezione mondo...")
                 for i in range(45):
                     if selector_ok.is_visible(): 
-                        try: selector_ok.click()
+                        try: 
+                            time.sleep(random.uniform(0.5, 1.0))
+                            selector_ok.click()
                         except: pass
                     if selector_mondo.is_visible():
-                        try: selector_mondo.click(force=True)
+                        try: 
+                            time.sleep(random.uniform(0.8, 1.5))
+                            selector_mondo.click(force=True)
                         except: pass
                     
                     cookies = context.cookies()
@@ -87,7 +99,9 @@ class RePanzaClient:
                         final_cookies = context.cookies()
                         browser.close()
                         return RePanzaClient(final_cookies, ua)
-                    time.sleep(1)
+                    
+                    # Pausa di polling variabile
+                    time.sleep(random.uniform(0.8, 1.3))
             except Exception as e:
                 print(f"⚠️ Errore Login: {e}")
             
@@ -142,7 +156,9 @@ def fetch_ranking(client):
             
             if len(players) < step: break
             offset += step
-            time.sleep(0.3)
+            
+            # Pausa casuale per simulare lettura/scorrimento pagina
+            time.sleep(random.uniform(0.4, 1.1))
         except Exception as e:
             print(f"💥 Errore Ranking: {e}")
             break
@@ -197,7 +213,9 @@ def fetch_alliance_ranking(client):
             
             if len(alliances) < step: break
             offset += step
-            time.sleep(0.3)
+            
+            # Pausa casuale per simulare lettura/scorrimento pagina
+            time.sleep(random.uniform(0.4, 1.1))
         except Exception as e:
             print(f"💥 Errore Ranking Alleanze: {e}")
             break
@@ -254,7 +272,7 @@ def process_tile(x, y, session, tmp_map, player_map, alliance_map):
                         'p': pid,                   
                         'pn': nome_giocatore,       
                         'a': aid,
-                        'an': nome_alleanza,  # Inserito il nome alleanza sotto pn
+                        'an': nome_alleanza,
                         'n': h.get('name', ''),
                         'x': int(h['mapx']),
                         'y': int(h['mapy']),
@@ -380,6 +398,7 @@ def run_unified_scanner():
 
     for tx, ty in punti_caldi.values():
         process_tile(tx, ty, session, temp_map, player_map, alliance_map)
+        time.sleep(random.uniform(0.05, 0.2)) # <-- Pausa "umana" per scorrere i punti noti
 
     centerX, centerY = 503, 503
     if temp_map:
@@ -399,8 +418,10 @@ def run_unified_scanner():
         
         for px, py in punti:
             if f"{px}_{py}" not in punti_caldi:
-                if process_tile(px, py, session, temp_map, player_map, alliance_map): trovato = True
+                if process_tile(px, py, session, temp_map, player_map, alliance_map): 
+                    trovato = True
                 punti_caldi[f"{px}_{py}"] = (px, py)
+                time.sleep(random.uniform(0.05, 0.15)) # <-- Pausa "umana" durante l'esplorazione mappa
         
         if trovato: vuoti = 0
         else: vuoti += 1
