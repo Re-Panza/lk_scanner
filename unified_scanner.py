@@ -190,7 +190,7 @@ def process_tile(x, y, session, tmp_map, player_map):
 def run_inactivity_check(data):
     for key, h in data.items():
         if not h.get('p') or h['p'] == 0: continue
-        firma = f"{h['n']}|{h['pt']}"
+       firma = f"{h.get('pn', 'Sconosciuto')}|{h.get('a', 0)}|{h['n']}|{h['pt']}"
         h['d'] = int(h['d'])
         
         if 'u' not in h: h['u'] = h['d']; h['f'] = firma; continue
