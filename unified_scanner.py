@@ -9,9 +9,30 @@ from playwright.sync_api import sync_playwright
 # --- CONFIGURAZIONE ---
 SERVER_ID = "LKWorldServer-RE-IT-6"
 WORLD_ID = "327"
+WORLD_NAME = "Italia VI" # Nome esatto del bottone del mondo
 BACKEND_URL = "https://backend3.lordsandknights.com"
 FILE_DATABASE = "database_mondo_327.json"
 FILE_HISTORY = "cronologia_327.json"
+
+def send_telegram_alert(world_name):
+    token = os.getenv("TELEGRAM_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    
+    if not token or not chat_id:
+        print("⚠️ Credenziali Telegram mancanti nei secrets. Impossibile inviare notifica.")
+        return
+        
+    messaggio = f"Capo, il mondo '{world_name}' forse è stato bannato, controlla."
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    
+    try:
+        response = requests.post(url, json={"chat_id": chat_id, "text": messaggio})
+        if response.status_code == 200:
+            print("📲 Notifica Telegram inviata con successo!")
+        else:
+            print(f"⚠️ Errore API Telegram: {response.text}")
+    except Exception as e:
+        print(f"⚠️ Errore invio notifica Telegram: {e}")
 
 class RePanzaClient:
     def __init__(self, cookies, user_agent):
@@ -47,7 +68,8 @@ class RePanzaClient:
                 time.sleep(1)
                 page.click('button:has-text("LOG IN")')
                 
-                selector_mondo = page.locator(".button-game-world--title:has-text('Italia VI')").first
+                # Usa la variabile WORLD_NAME dinamicamente per il click
+                selector_mondo = page.locator(f".button-game-world--title:has-text('{WORLD_NAME}')").first
                 selector_ok = page.locator("button:has-text('OK')")
                 
                 print("⏳ Attesa selezione mondo...")
@@ -190,7 +212,8 @@ def process_tile(x, y, session, tmp_map, player_map):
 def run_inactivity_check(data):
     for key, h in data.items():
         if not h.get('p') or h['p'] == 0: continue
-       firma = f"{h.get('pn', 'Sconosciuto')}|{h.get('a', 0)}|{h['n']}|{h['pt']}"
+        # Firma corretta e completa: Nome player, Alleanza, Nome castello, Punti castello
+        firma = f"{h.get('pn', 'Sconosciuto')}|{h.get('a', 0)}|{h['n']}|{h['pt']}"
         h['d'] = int(h['d'])
         
         if 'u' not in h: h['u'] = h['d']; h['f'] = firma; continue
@@ -243,6 +266,7 @@ def run_unified_scanner():
             player_map = fetch_ranking(client)
         else: 
             print("⚠️ Login fallito. Nomi giocatori non disponibili.")
+            send_telegram_alert(WORLD_NAME)
     
     # Carica DB Esistente
     temp_map = {}
