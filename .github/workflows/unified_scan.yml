@@ -30,6 +30,8 @@ jobs:
         env:
           LK_EMAIL: ${{ secrets.LK_EMAIL }}
           LK_PASSWORD: ${{ secrets.LK_PASSWORD }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python unified_scanner.py
 
       - name: Upload Debug Screenshots
