@@ -5,7 +5,7 @@ import time
 import plistlib
 import re
 import copy # Utilizzato per fare la "fotografia" del database prima della scansione
-import random # <-- Libreria aggiunta per simulare il comportamento umano
+import random # Libreria aggiunta per simulare il comportamento umano
 from playwright.sync_api import sync_playwright
 
 # --- CONFIGURAZIONE ---
@@ -24,7 +24,7 @@ def send_telegram_alert(world_name):
         print("⚠️ Credenziali Telegram mancanti nei secrets. Impossibile inviare notifica.")
         return
         
-    messaggio = f"Capo, il mondo '{world_name}' forse è stato bannato, controlla."
+    messaggio = f"Capo, il mondo '{world_name}' non risponde (possibile ban o server giù). Ho salvato uno screenshot nei log di GitHub, controlla!"
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     
     try:
@@ -61,15 +61,13 @@ class RePanzaClient:
             
             try:
                 print("🌐 Caricamento Lords & Knights...")
-                page.goto("https://www.lordsandknights.com/", wait_until="domcontentloaded", timeout=60000)
+                page.goto("https://www.lordsandknights.com/", wait_until="domcontentloaded", timeout=120000)
                 
-                # Pausa casuale iniziale come un utente che guarda la pagina
                 time.sleep(random.uniform(1.5, 3.0))
                 
                 try: page.wait_for_selector('input[placeholder="Email"]', state="visible", timeout=10000)
                 except: pass
 
-                # Simula digitazione umana per Email e Password
                 page.type('input[placeholder="Email"]', email, delay=random.randint(50, 150))
                 time.sleep(random.uniform(0.3, 0.8))
                 page.type('input[placeholder="Password"]', password, delay=random.randint(50, 150))
@@ -80,8 +78,11 @@ class RePanzaClient:
                 selector_mondo = page.locator(f".button-game-world--title:has-text('{WORLD_NAME}')").first
                 selector_ok = page.locator("button:has-text('OK')")
                 
-                print("⏳ Attesa selezione mondo...")
-                for i in range(45):
+                print("⏳ Attesa selezione mondo (Max 10 minuti)...")
+                start_time = time.time()
+                
+                # Ciclo di controllo bloccato a massimo 600 secondi (10 minuti)
+                while time.time() - start_time < 600:
                     if selector_ok.is_visible(): 
                         try: 
                             time.sleep(random.uniform(0.5, 1.0))
@@ -100,10 +101,16 @@ class RePanzaClient:
                         browser.close()
                         return RePanzaClient(final_cookies, ua)
                     
-                    # Pausa di polling variabile
                     time.sleep(random.uniform(0.8, 1.3))
+                
+                print("🛑 Timeout di 10 minuti raggiunto senza riuscire a loggare.")
+                try: page.screenshot(path="debug_login_error.png", full_page=True)
+                except: pass
+
             except Exception as e:
                 print(f"⚠️ Errore Login: {e}")
+                try: page.screenshot(path="debug_login_error.png", full_page=True)
+                except: pass
             
             browser.close()
             return None
@@ -157,7 +164,6 @@ def fetch_ranking(client):
             if len(players) < step: break
             offset += step
             
-            # Pausa casuale per simulare lettura/scorrimento pagina
             time.sleep(random.uniform(0.4, 1.1))
         except Exception as e:
             print(f"💥 Errore Ranking: {e}")
@@ -214,7 +220,6 @@ def fetch_alliance_ranking(client):
             if len(alliances) < step: break
             offset += step
             
-            # Pausa casuale per simulare lettura/scorrimento pagina
             time.sleep(random.uniform(0.4, 1.1))
         except Exception as e:
             print(f"💥 Errore Ranking Alleanze: {e}")
@@ -382,7 +387,6 @@ def run_unified_scanner():
 
     print(f"📂 Database caricato: {len(temp_map)} castelli.")
     
-    # --- SNAPSHOT PRE-SCANSIONE PER CRONOLOGIA ---
     old_db_list = copy.deepcopy(list(temp_map.values()))
 
     if player_map and temp_map:
@@ -398,7 +402,7 @@ def run_unified_scanner():
 
     for tx, ty in punti_caldi.values():
         process_tile(tx, ty, session, temp_map, player_map, alliance_map)
-        time.sleep(random.uniform(0.05, 0.2)) # <-- Pausa "umana" per scorrere i punti noti
+        time.sleep(random.uniform(0.05, 0.2))
 
     centerX, centerY = 503, 503
     if temp_map:
@@ -421,7 +425,7 @@ def run_unified_scanner():
                 if process_tile(px, py, session, temp_map, player_map, alliance_map): 
                     trovato = True
                 punti_caldi[f"{px}_{py}"] = (px, py)
-                time.sleep(random.uniform(0.05, 0.15)) # <-- Pausa "umana" durante l'esplorazione mappa
+                time.sleep(random.uniform(0.05, 0.15))
         
         if trovato: vuoti = 0
         else: vuoti += 1
@@ -429,7 +433,6 @@ def run_unified_scanner():
 
     temp_map = run_inactivity_check(temp_map)
     
-    # --- CONTROLLO CRONOLOGIA CON DATI NUOVI ---
     new_db_list = list(temp_map.values())
     run_history_check(old_db_list, new_db_list, FILE_HISTORY)
     
