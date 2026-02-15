@@ -104,6 +104,42 @@ def process_tile_public(x, y, session, tmp_map, player_map):
     except: pass
     return False
 
+# --- NUOVO ESTRATTORE RICORSIVO ("Rete a Strascico") ---
+def extract_hidden_ids(node, known_map, found_set):
+    if isinstance(node, dict):
+        # Cerchiamo coordinate in questo nodo
+        hx = node.get('x') or node.get('mapX') or node.get('mapx')
+        hy = node.get('y') or node.get('mapY') or node.get('mapy')
+        
+        if hx is not None and hy is not None:
+            try:
+                hid = node.get('id') or node.get('habitatID') or node.get('primaryKey')
+                if hid:
+                    key = f"{int(hx)}_{int(hy)}"
+                    if key in known_map:
+                        known_map[key]['id_habitat'] = hid
+                        found_set.add(key)
+            except: pass
+        
+        # Scendiamo in profondità in tutte le sottocartelle
+        for k, v in node.items():
+            if isinstance(v, dict):
+                sub_hx = v.get('x') or v.get('mapX') or v.get('mapx')
+                sub_hy = v.get('y') or v.get('mapY') or v.get('mapy')
+                if sub_hx is not None and sub_hy is not None:
+                    try:
+                        sub_hid = v.get('id') or v.get('primaryKey') or k
+                        key = f"{int(sub_hx)}_{int(sub_hy)}"
+                        if key in known_map:
+                            known_map[key]['id_habitat'] = sub_hid
+                            found_set.add(key)
+                    except: pass
+            extract_hidden_ids(v, known_map, found_set)
+            
+    elif isinstance(node, list):
+        for item in node:
+            extract_hidden_ids(item, known_map, found_set)
+
 def enrich_with_habitat_ids(client, temp_map):
     """Arricchimento ID tramite MapAction (Richiede Login)"""
     print("🔑 Tentativo di recupero HabitatID via MapAction...")
@@ -130,7 +166,6 @@ def enrich_with_habitat_ids(client, temp_map):
     
     print(f"🗺️ Zone da interrogare per gli ID: {len(zone_da_scaricare)}")
     habitat_trovati = 0
-    debug_stampato = False 
     
     for tx, ty in zone_da_scaricare:
         url = f"{BACKEND_URL}/XYRALITY/WebObjects/{SERVER_ID}.woa/wa/MapAction/map"
@@ -151,39 +186,11 @@ def enrich_with_habitat_ids(client, temp_map):
             if res.status_code == 200:
                 data = plistlib.loads(res.content)
                 
-                # --- NUOVA LOGICA DI ESTRAZIONE PROFONDA ---
-                habitats = []
-                if 'h' in data: 
-                    habitats = data['h']
-                elif 'habitats' in data: 
-                    habitats = data['habitats']
-                elif 'map' in data and isinstance(data['map'], dict):
-                    habitats = data['map'].get('h', []) or data['map'].get('habitats', [])
-                elif 'map' in data and isinstance(data['map'], list):
-                    habitats = data['map']
-                elif 'Data' in data and isinstance(data['Data'], dict):
-                    habitats = data['Data'].get('h', []) or data['Data'].get('habitats', [])
-
-                # --- SPIA AGGIORNATA ---
-                if not debug_stampato:
-                    print(f"🔍 DEBUG SERVER - CHIAVI PRINCIPALI: {list(data.keys())}")
-                    if habitats and len(habitats) > 0:
-                        print(f"🔍 DEBUG SERVER - PRIMO CASTELLO TROVATO: {habitats[0]}")
-                    else:
-                        print(f"🔍 DEBUG SERVER - CONTENUTO DI 'map': {data.get('map', 'Nessuna chiave map')}")
-                    debug_stampato = True
+                found_in_this_request = set()
+                # Lanciamo l'estrattore su tutta la risposta del server
+                extract_hidden_ids(data, temp_map, found_in_this_request)
+                habitat_trovati += len(found_in_this_request)
                 
-                for h in habitats:
-                    hx = h.get('x') or h.get('mapX') or h.get('mapx')
-                    hy = h.get('y') or h.get('mapY') or h.get('mapy')
-                    
-                    if hx is not None and hy is not None:
-                        key = f"{int(hx)}_{int(hy)}"
-                        if key in temp_map:
-                            hid = h.get('id') or h.get('habitatID') or h.get('primaryKey') or h.get('i')
-                            if hid:
-                                temp_map[key]['id_habitat'] = hid
-                                habitat_trovati += 1
             else:
                 print(f"⚠️ Errore {res.status_code} dal server nella zona {tx}_{ty}")
         except Exception as e:
