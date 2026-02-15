@@ -111,7 +111,6 @@ def enrich_with_habitat_ids(client, temp_map):
     for cookie in client.cookies: 
         session.cookies.set(cookie['name'], cookie['value'])
     
-    # Header ESATTI al cURL per evitare l'errore 403 Forbidden
     session.headers.update({
         'User-Agent': client.user_agent,
         'Accept': 'application/x-bplist',
@@ -131,11 +130,11 @@ def enrich_with_habitat_ids(client, temp_map):
     
     print(f"🗺️ Zone da interrogare per gli ID: {len(zone_da_scaricare)}")
     habitat_trovati = 0
+    debug_stampato = False # Variabile per stampare la spia una volta sola
     
     for tx, ty in zone_da_scaricare:
         url = f"{BACKEND_URL}/XYRALITY/WebObjects/{SERVER_ID}.woa/wa/MapAction/map"
         
-        # Aggiunto logoutUrl per mimetizzarsi perfettamente
         payload = {
             'mapX': str(tx*32), 
             'mapY': str(ty*32), 
@@ -151,19 +150,36 @@ def enrich_with_habitat_ids(client, temp_map):
             
             if res.status_code == 200:
                 data = plistlib.loads(res.content)
+                
+                # --- MODIFICA DI DEBUG: LA SPIA ---
+                if not debug_stampato:
+                    print(f"🔍 DEBUG SERVER - STRUTTURA RISPOSTA: {list(data.keys())}")
+                    # Cerchiamo di stampare il primissimo castello per leggere come si chiamano le sue variabili
+                    if 'h' in data and len(data['h']) > 0:
+                        print(f"🔍 DEBUG SERVER - PRIMO CASTELLO: {data['h'][0]}")
+                    elif 'habitats' in data and len(data['habitats']) > 0:
+                        print(f"🔍 DEBUG SERVER - PRIMO CASTELLO: {data['habitats'][0]}")
+                    debug_stampato = True
+                # -----------------------------------
+                
                 habitats = data.get('h', []) or data.get('habitats', [])
                 
                 for h in habitats:
-                    key = f"{h.get('x')}_{h.get('y')}"
-                    if key in temp_map:
-                        hid = h.get('id') or h.get('habitatID') or h.get('primaryKey')
-                        if hid:
-                            temp_map[key]['id_habitat'] = hid
-                            habitat_trovati += 1
+                    # Inserito get safely per evitare errori se le chiavi non esistono
+                    hx = h.get('x') or h.get('mapX') or h.get('mapx')
+                    hy = h.get('y') or h.get('mapY') or h.get('mapy')
+                    
+                    if hx is not None and hy is not None:
+                        key = f"{int(hx)}_{int(hy)}"
+                        if key in temp_map:
+                            hid = h.get('id') or h.get('habitatID') or h.get('primaryKey') or h.get('i')
+                            if hid:
+                                temp_map[key]['id_habitat'] = hid
+                                habitat_trovati += 1
             else:
                 print(f"⚠️ Errore {res.status_code} dal server nella zona {tx}_{ty}")
         except Exception as e:
-            print(f"⚠️ Errore codice nella zona {tx}_{ty}: {e}")
+            pass # Ignoriamo gli errori di singola zona per non inquinare i log
             continue
 
     print(f"🎯 Finito! Aggiunti/Aggiornati {habitat_trovati} HabitatID nel database.")
