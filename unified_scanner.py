@@ -108,26 +108,53 @@ def enrich_with_habitat_ids(client, temp_map):
     """Arricchimento ID tramite MapAction (Richiede Login)"""
     print("🔑 Tentativo di recupero HabitatID via MapAction...")
     session = requests.Session()
-    for cookie in client.cookies: session.cookies.set(cookie['name'], cookie['value'])
+    for cookie in client.cookies: 
+        session.cookies.set(cookie['name'], cookie['value'])
     
-    # Raggruppiamo i castelli per zone 32x32 per minimizzare le richieste
+    # Header fondamentali per farsi accettare il bplist
+    session.headers.update({
+        'User-Agent': client.user_agent,
+        'Accept': 'application/x-bplist',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'XYClient-Client': 'lk_b_3',
+        'XYClient-Platform': 'browser',
+        'Origin': 'https://www.lordsandknights.com',
+        'Referer': 'https://www.lordsandknights.com/'
+    })
+    
     zone_da_scaricare = set()
     for entry in temp_map.values():
         zone_da_scaricare.add((entry['x'] // 32, entry['y'] // 32))
+    
+    print(f"🗺️ Zone da interrogare per gli ID: {len(zone_da_scaricare)}")
+    habitat_trovati = 0
     
     for tx, ty in zone_da_scaricare:
         url = f"{BACKEND_URL}/XYRALITY/WebObjects/{SERVER_ID}.woa/wa/MapAction/map"
         payload = {'mapX': str(tx*32), 'mapY': str(ty*32), 'mapWidth': '32', 'mapHeight': '32', 'worldId': WORLD_ID}
         try:
-            time.sleep(random.uniform(1.5, 3.5)) # Simulazione umana
+            time.sleep(random.uniform(1.5, 3.5)) 
             res = session.post(url, data=payload, timeout=15)
+            
             if res.status_code == 200:
                 data = plistlib.loads(res.content)
-                for h in data.get('h', []):
-                    key = f"{h['x']}_{h['y']}"
+                habitats = data.get('h', []) or data.get('habitats', [])
+                
+                for h in habitats:
+                    key = f"{h.get('x')}_{h.get('y')}"
                     if key in temp_map:
-                        temp_map[key]['id_habitat'] = h['id']
-        except: continue
+                        # Cerchiamo l'ID usando diverse chiavi possibili
+                        hid = h.get('id') or h.get('habitatID') or h.get('primaryKey')
+                        if hid:
+                            temp_map[key]['id_habitat'] = hid
+                            habitat_trovati += 1
+            else:
+                print(f"⚠️ Errore {res.status_code} dal server nella zona {tx}_{ty}")
+        except Exception as e:
+            print(f"⚠️ Errore codice nella zona {tx}_{ty}: {e}")
+            continue
+
+    print(f"🎯 Finito! Aggiunti/Aggiornati {habitat_trovati} HabitatID nel database.")
 
 def run_unified_scanner():
     EMAIL = os.getenv("LK_EMAIL")
@@ -144,9 +171,42 @@ def run_unified_scanner():
 
     session = requests.Session()
     print("🛰️ Avvio Scansione JTILE Pubblica...")
-    # Qui inserisci la tua logica a spirale esistente che chiama process_tile_public
-    # [Logica spirale omessa per brevità, usa quella del tuo file originale]
+    
+    punti_caldi = {}
+    for entry in temp_map.values():
+        tx, ty = entry['x'] // 32, entry['y'] // 32
+        punti_caldi[f"{tx}_{ty}"] = (tx, ty)
 
+    for tx, ty in punti_caldi.values():
+        process_tile_public(tx, ty, session, temp_map, player_map)
+
+    centerX, centerY = 503, 503
+    if temp_map:
+        vals = list(temp_map.values())
+        if vals:
+            centerX = sum(e['x']//32 for e in vals) // len(vals)
+            centerY = sum(e['y']//32 for e in vals) // len(vals)
+
+    vuoti = 0
+    for r in range(150):
+        trovato = False
+        xMin, xMax = centerX - r, centerX + r
+        yMin, yMax = centerY - r, centerY + r
+        punti = []
+        for i in range(xMin, xMax + 1): punti.append((i,yMin)); punti.append((i,yMax))
+        for j in range(yMin + 1, yMax): punti.append((xMin,j)); punti.append((xMax,j))
+        
+        for px, py in punti:
+            if f"{px}_{py}" not in punti_caldi:
+                if process_tile_public(px, py, session, temp_map, player_map): 
+                    trovato = True
+                punti_caldi[f"{px}_{py}"] = (px, py)
+        
+        if trovato: vuoti = 0
+        else: vuoti += 1
+        if vuoti >= 5: break
+
+    # Arricchimento dati privati solo se loggati
     if client:
         enrich_with_habitat_ids(client, temp_map)
 
