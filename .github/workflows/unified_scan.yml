@@ -48,13 +48,11 @@ jobs:
           git config --local user.email "bot@repanza.it"
           git config --local user.name "Re Panza Unified Bot"
           
-          # Aggiungiamo i file ignorando gli errori se uno non esiste
-          git add database_mondo_327.json || true
-          git add cronologia_327.json || true
+          git add -f database_mondo_327.json || true
+          git add -f cronologia_327.json || true
           
-          # Controlla se ci sono file pronti per il commit
           if ! git diff --staged --quiet; then
-            git commit -m "📊 Unified Scan aggiornato"
+            git commit -m "📊 Unified Scan: Aggiornamento Database"
             git push origin HEAD:main
           else
             echo "Nessuna modifica rilevata. Push saltato."
