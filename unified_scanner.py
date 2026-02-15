@@ -111,13 +111,16 @@ def enrich_with_habitat_ids(client, temp_map):
     for cookie in client.cookies: 
         session.cookies.set(cookie['name'], cookie['value'])
     
-    # Header fondamentali per farsi accettare il bplist
+    # Header ESATTI al cURL per evitare l'errore 403 Forbidden
     session.headers.update({
         'User-Agent': client.user_agent,
         'Accept': 'application/x-bplist',
         'Content-Type': 'application/x-www-form-urlencoded',
         'XYClient-Client': 'lk_b_3',
+        'XYClient-Loginclient': 'Chrome',
+        'XYClient-Loginclientversion': '10.8.0',
         'XYClient-Platform': 'browser',
+        'XYClient-Capabilities': 'base,fortress,city,parti%D0%B0l%CE%A4ran%D1%95its,starterpack,requestInformation,partialUpdate,regions,metropolis',
         'Origin': 'https://www.lordsandknights.com',
         'Referer': 'https://www.lordsandknights.com/'
     })
@@ -131,7 +134,17 @@ def enrich_with_habitat_ids(client, temp_map):
     
     for tx, ty in zone_da_scaricare:
         url = f"{BACKEND_URL}/XYRALITY/WebObjects/{SERVER_ID}.woa/wa/MapAction/map"
-        payload = {'mapX': str(tx*32), 'mapY': str(ty*32), 'mapWidth': '32', 'mapHeight': '32', 'worldId': WORLD_ID}
+        
+        # Aggiunto logoutUrl per mimetizzarsi perfettamente
+        payload = {
+            'mapX': str(tx*32), 
+            'mapY': str(ty*32), 
+            'mapWidth': '32', 
+            'mapHeight': '32', 
+            'worldId': WORLD_ID,
+            'logoutUrl': 'http://lordsandknights.com/'
+        }
+        
         try:
             time.sleep(random.uniform(1.5, 3.5)) 
             res = session.post(url, data=payload, timeout=15)
@@ -143,7 +156,6 @@ def enrich_with_habitat_ids(client, temp_map):
                 for h in habitats:
                     key = f"{h.get('x')}_{h.get('y')}"
                     if key in temp_map:
-                        # Cerchiamo l'ID usando diverse chiavi possibili
                         hid = h.get('id') or h.get('habitatID') or h.get('primaryKey')
                         if hid:
                             temp_map[key]['id_habitat'] = hid
