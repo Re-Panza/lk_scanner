@@ -34,10 +34,28 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python unified_scanner.py
 
+      - name: Upload Debug Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: '*.png'
+          retention-days: 5
+
       - name: Commit and Push Results
         if: success()
         run: |
           git config --local user.email "bot@repanza.it"
           git config --local user.name "Re Panza Unified Bot"
-          git add database_mondo_327.json cronologia_327.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "📊 Unified Scan: $(date)" && git push)
+          
+          # Aggiungiamo i file ignorando gli errori se uno non esiste
+          git add database_mondo_327.json || true
+          git add cronologia_327.json || true
+          
+          # Controlla se ci sono file pronti per il commit
+          if ! git diff --staged --quiet; then
+            git commit -m "📊 Unified Scan aggiornato"
+            git push origin HEAD:main
+          else
+            echo "Nessuna modifica rilevata. Push saltato."
+          fi
