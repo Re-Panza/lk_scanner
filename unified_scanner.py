@@ -130,7 +130,7 @@ def enrich_with_habitat_ids(client, temp_map):
     
     print(f"🗺️ Zone da interrogare per gli ID: {len(zone_da_scaricare)}")
     habitat_trovati = 0
-    debug_stampato = False # Variabile per stampare la spia una volta sola
+    debug_stampato = False 
     
     for tx, ty in zone_da_scaricare:
         url = f"{BACKEND_URL}/XYRALITY/WebObjects/{SERVER_ID}.woa/wa/MapAction/map"
@@ -151,21 +151,29 @@ def enrich_with_habitat_ids(client, temp_map):
             if res.status_code == 200:
                 data = plistlib.loads(res.content)
                 
-                # --- MODIFICA DI DEBUG: LA SPIA ---
+                # --- NUOVA LOGICA DI ESTRAZIONE PROFONDA ---
+                habitats = []
+                if 'h' in data: 
+                    habitats = data['h']
+                elif 'habitats' in data: 
+                    habitats = data['habitats']
+                elif 'map' in data and isinstance(data['map'], dict):
+                    habitats = data['map'].get('h', []) or data['map'].get('habitats', [])
+                elif 'map' in data and isinstance(data['map'], list):
+                    habitats = data['map']
+                elif 'Data' in data and isinstance(data['Data'], dict):
+                    habitats = data['Data'].get('h', []) or data['Data'].get('habitats', [])
+
+                # --- SPIA AGGIORNATA ---
                 if not debug_stampato:
-                    print(f"🔍 DEBUG SERVER - STRUTTURA RISPOSTA: {list(data.keys())}")
-                    # Cerchiamo di stampare il primissimo castello per leggere come si chiamano le sue variabili
-                    if 'h' in data and len(data['h']) > 0:
-                        print(f"🔍 DEBUG SERVER - PRIMO CASTELLO: {data['h'][0]}")
-                    elif 'habitats' in data and len(data['habitats']) > 0:
-                        print(f"🔍 DEBUG SERVER - PRIMO CASTELLO: {data['habitats'][0]}")
+                    print(f"🔍 DEBUG SERVER - CHIAVI PRINCIPALI: {list(data.keys())}")
+                    if habitats and len(habitats) > 0:
+                        print(f"🔍 DEBUG SERVER - PRIMO CASTELLO TROVATO: {habitats[0]}")
+                    else:
+                        print(f"🔍 DEBUG SERVER - CONTENUTO DI 'map': {data.get('map', 'Nessuna chiave map')}")
                     debug_stampato = True
-                # -----------------------------------
-                
-                habitats = data.get('h', []) or data.get('habitats', [])
                 
                 for h in habitats:
-                    # Inserito get safely per evitare errori se le chiavi non esistono
                     hx = h.get('x') or h.get('mapX') or h.get('mapx')
                     hy = h.get('y') or h.get('mapY') or h.get('mapy')
                     
@@ -179,7 +187,6 @@ def enrich_with_habitat_ids(client, temp_map):
             else:
                 print(f"⚠️ Errore {res.status_code} dal server nella zona {tx}_{ty}")
         except Exception as e:
-            pass # Ignoriamo gli errori di singola zona per non inquinare i log
             continue
 
     print(f"🎯 Finito! Aggiunti/Aggiornati {habitat_trovati} HabitatID nel database.")
