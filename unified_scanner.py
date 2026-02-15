@@ -93,21 +93,30 @@ def process_tile_public(x, y, session, tmp_map, player_map):
                 for h in data['habitatArray']:
                     pid = int(h['playerid'])
                     key = f"{h['mapx']}_{h['mapy']}"
-                    tmp_map[key] = {
-                        'p': pid, 'pn': player_map.get(pid, "Sconosciuto"),
-                        'a': int(h['allianceid']), 'n': h.get('name', ''),
-                        'x': int(h['mapx']), 'y': int(h['mapy']),
-                        'pt': int(h['points']), 't': int(h['habitattype']),
-                        'd': int(time.time())
-                    }
+                    
+                    # Se il castello esiste già, aggiorniamo solo i dati volatili senza cancellare l'id_habitat
+                    if key in tmp_map:
+                        tmp_map[key].update({
+                            'p': pid, 'pn': player_map.get(pid, "Sconosciuto"),
+                            'a': int(h['allianceid']), 'n': h.get('name', ''),
+                            'pt': int(h['points']), 't': int(h['habitattype']),
+                            'd': int(time.time())
+                        })
+                    else:
+                        # Se è un nuovo castello, lo creiamo senza id_habitat
+                        tmp_map[key] = {
+                            'p': pid, 'pn': player_map.get(pid, "Sconosciuto"),
+                            'a': int(h['allianceid']), 'n': h.get('name', ''),
+                            'x': int(h['mapx']), 'y': int(h['mapy']),
+                            'pt': int(h['points']), 't': int(h['habitattype']),
+                            'd': int(time.time())
+                        }
                 return True
     except: pass
     return False
 
-# --- NUOVO ESTRATTORE RICORSIVO ("Rete a Strascico") ---
 def extract_hidden_ids(node, known_map, found_set):
     if isinstance(node, dict):
-        # Cerchiamo coordinate in questo nodo
         hx = node.get('x') or node.get('mapX') or node.get('mapx')
         hy = node.get('y') or node.get('mapY') or node.get('mapy')
         
@@ -121,7 +130,6 @@ def extract_hidden_ids(node, known_map, found_set):
                         found_set.add(key)
             except: pass
         
-        # Scendiamo in profondità in tutte le sottocartelle
         for k, v in node.items():
             if isinstance(v, dict):
                 sub_hx = v.get('x') or v.get('mapX') or v.get('mapx')
@@ -140,9 +148,9 @@ def extract_hidden_ids(node, known_map, found_set):
         for item in node:
             extract_hidden_ids(item, known_map, found_set)
 
-def enrich_with_habitat_ids(client, temp_map):
-    """Arricchimento ID tramite MapAction (Richiede Login)"""
-    print("🔑 Tentativo di recupero HabitatID via MapAction...")
+def enrich_with_habitat_ids(client, temp_map, castelli_senza_id):
+    """Arricchimento ID Mirato: solo per le zone con nuovi castelli"""
+    print("🔑 Avvio recupero HabitatID via MapAction (Modalità Mirata)...")
     session = requests.Session()
     for cookie in client.cookies: 
         session.cookies.set(cookie['name'], cookie['value'])
@@ -161,10 +169,10 @@ def enrich_with_habitat_ids(client, temp_map):
     })
     
     zone_da_scaricare = set()
-    for entry in temp_map.values():
+    for entry in castelli_senza_id.values():
         zone_da_scaricare.add((entry['x'] // 32, entry['y'] // 32))
     
-    print(f"🗺️ Zone da interrogare per gli ID: {len(zone_da_scaricare)}")
+    print(f"🗺️ Zone da interrogare per i nuovi ID: {len(zone_da_scaricare)}")
     habitat_trovati = 0
     
     for tx, ty in zone_da_scaricare:
@@ -185,18 +193,15 @@ def enrich_with_habitat_ids(client, temp_map):
             
             if res.status_code == 200:
                 data = plistlib.loads(res.content)
-                
                 found_in_this_request = set()
-                # Lanciamo l'estrattore su tutta la risposta del server
                 extract_hidden_ids(data, temp_map, found_in_this_request)
                 habitat_trovati += len(found_in_this_request)
-                
             else:
                 print(f"⚠️ Errore {res.status_code} dal server nella zona {tx}_{ty}")
         except Exception as e:
             continue
 
-    print(f"🎯 Finito! Aggiunti/Aggiornati {habitat_trovati} HabitatID nel database.")
+    print(f"🎯 Finito! Aggiunti {habitat_trovati} nuovi HabitatID nel database.")
 
 def run_unified_scanner():
     EMAIL = os.getenv("LK_EMAIL")
@@ -248,9 +253,18 @@ def run_unified_scanner():
         else: vuoti += 1
         if vuoti >= 5: break
 
-    # Arricchimento dati privati solo se loggati
-    if client:
-        enrich_with_habitat_ids(client, temp_map)
+    # --- LOGICA DI RISPARMIO MINUTI GITHUB ---
+    # Creiamo un dizionario temporaneo solo con i castelli a cui manca la chiave 'id_habitat'
+    castelli_senza_id = {k: v for k, v in temp_map.items() if 'id_habitat' not in v}
+    
+    if not castelli_senza_id:
+        print("⚡ Nessun nuovo castello rilevato. Salto l'estrazione degli HabitatID per risparmiare tempo Action!")
+    else:
+        print(f"⚠️ Rilevati {len(castelli_senza_id)} nuovi castelli senza ID.")
+        if client:
+            enrich_with_habitat_ids(client, temp_map, castelli_senza_id)
+        else:
+            print("❌ Login mancante, impossibile estrarre i nuovi ID.")
 
     final_list = list(temp_map.values())
     with open(FILE_DATABASE, 'w', encoding='utf-8') as f:
