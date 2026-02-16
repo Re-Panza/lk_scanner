@@ -9,12 +9,12 @@ import random
 from playwright.sync_api import sync_playwright
 
 # --- CONFIGURAZIONE ---
-SERVER_ID = "LKWorldServer-RE-IT-6"
-WORLD_ID = "327"
-WORLD_NAME = "Italia VI" 
-BACKEND_URL = "https://backend3.lordsandknights.com"
-FILE_DATABASE = "database_mondo_327.json"
-FILE_HISTORY = "cronologia_327.json"
+SERVER_ID = "LKWorldServer-IT-15"
+WORLD_ID = "337"
+WORLD_NAME = "Italia 15" 
+BACKEND_URL = "https://backend1.lordsandknights.com"
+FILE_DATABASE = "database_mondo_337.json"
+FILE_HISTORY = "cronologia_337.json"
 
 def send_telegram_alert(world_name):
     token = os.getenv("TELEGRAM_TOKEN")
