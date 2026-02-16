@@ -19,11 +19,16 @@ FILE_HISTORY = "cronologia_327.json"
 def send_telegram_alert(world_name):
     token = os.getenv("TELEGRAM_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
-    if not token or not chat_id: return
+    if not token or not chat_id: 
+        print("⚠️ [SISTEMA] Credenziali Telegram mancanti, salto l'invio dell'allarme.")
+        return
     messaggio = f"Capo, il login per '{world_name}' è fallito. La mappa è stata aggiornata, ma i nomi e i nuovi ID non sono stati scaricati. Controlla lo screenshot su GitHub!"
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    try: requests.post(url, json={"chat_id": chat_id, "text": messaggio})
-    except: pass
+    try: 
+        requests.post(url, json={"chat_id": chat_id, "text": messaggio})
+        print("📲 [TELEGRAM] Messaggio di allarme inviato con successo!")
+    except: 
+        print("⚠️ [TELEGRAM] Errore di connessione con i server di Telegram.")
 
 class RePanzaClient:
     def __init__(self, cookies, user_agent):
@@ -32,57 +37,68 @@ class RePanzaClient:
 
     @staticmethod
     def auto_login(email, password):
-        print("\n🔑 Inizio procedura di Login Sicuro con Playwright...")
+        print("\n🔑 [LOGIN] Inizio procedura di Login Sicuro con Playwright...")
         with sync_playwright() as p:
             ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
             args = ['--disable-blink-features=AutomationControlled', '--no-sandbox']
+            print("   [LOGIN] Avvio browser Chrome invisibile...")
             browser = p.chromium.launch(headless=True, args=args)
             context = browser.new_context(user_agent=ua)
             page = context.new_page()
             try:
+                print("   [LOGIN] Mi collego alla homepage di Lords & Knights...")
                 page.goto("https://www.lordsandknights.com/", timeout=120000)
                 time.sleep(random.uniform(1.5, 3.0))
                 
                 try: page.wait_for_selector('input[placeholder="Email"]', state="visible", timeout=10000)
-                except: pass
+                except: print("   [LOGIN] Attesa campo email prolungata...")
 
+                print("   [LOGIN] Digito le credenziali segrete come un umano...")
                 page.type('input[placeholder="Email"]', email, delay=random.randint(50, 150))
                 time.sleep(random.uniform(0.3, 0.8))
                 page.type('input[placeholder="Password"]', password, delay=random.randint(50, 150))
                 time.sleep(random.uniform(0.5, 1.2))
+                print("   [LOGIN] Clicco su LOG IN...")
                 page.click('button:has-text("LOG IN")')
                 
                 selector_mondo = page.locator(f".button-game-world--title:has-text('{WORLD_NAME}')").first
                 selector_ok = page.locator("button:has-text('OK')")
                 
+                print(f"   [LOGIN] ⏳ Attesa comparsa del mondo '{WORLD_NAME}' (Max 10 minuti)...")
                 start_time = time.time()
                 while time.time() - start_time < 600:
                     if selector_ok.is_visible(): 
                         try: 
+                            print("   [LOGIN] Popup OK trovato, lo chiudo.")
                             time.sleep(random.uniform(0.5, 1.0))
                             selector_ok.click()
                         except: pass
                     if selector_mondo.is_visible():
                         try: 
+                            print(f"   [LOGIN] Tasto del mondo trovato! Entro in {WORLD_NAME}...")
                             time.sleep(random.uniform(0.8, 1.5))
                             selector_mondo.click(force=True)
                         except: pass
                     
                     cookies = context.cookies()
                     if any(c['name'] == 'sessionID' for c in cookies):
-                        print(f"✅ Login Successo! Sessione catturata.")
+                        print(f"✅ [LOGIN] Successo! Sessione 'sessionID' rubata con successo al server.")
                         final_cookies = context.cookies()
                         browser.close()
                         return RePanzaClient(final_cookies, ua)
                     time.sleep(random.uniform(0.8, 1.3))
                 
-                print("🛑 Timeout di 10 minuti raggiunto senza riuscire a loggare.")
-                try: page.screenshot(path="debug_login_error.png", full_page=True)
+                print("🛑 [LOGIN] Timeout: Sono passati 10 minuti e il gioco non mi ha fatto entrare.")
+                try: 
+                    page.screenshot(path="debug_login_error.png", full_page=True)
+                    print("📸 [LOGIN] Ho scattato una foto dello schermo per capire l'errore (salvata nei log).")
                 except: pass
 
             except Exception as e:
-                print(f"⚠️ Errore Login: {e}")
-                try: page.screenshot(path="debug_login_error.png", full_page=True)
+                print(f"⚠️ [LOGIN] Errore critico durante la navigazione: {e}")
+                try: 
+                    page.screenshot(path="debug_login_error.png", full_page=True)
+                    print("📸 [LOGIN] Foto di emergenza scattata.")
                 except: pass
             
             browser.close()
@@ -108,23 +124,30 @@ def fetch_ranking(client):
     url = f"{BACKEND_URL}/XYRALITY/WebObjects/{SERVER_ID}.woa/wa/QueryAction/playerRanks"
     all_players = {}
     offset = 0
-    print(f"🚀 Recupero Classifica Nomi...")
+    print(f"\n🚀 [CLASSIFICA] Inizio a sfogliare l'elenco di tutti i giocatori...")
     while True:
         payload = {'offset': str(offset), 'limit': '100', 'type': '(player_rank)', 'worldId': WORLD_ID}
         try:
+            print(f"   📖 Leggo Pagina Giocatori {(offset//100) + 1} (da {offset} a {offset+100})...")
             res = session.post(url, data=payload, timeout=20)
-            if res.status_code != 200: break
+            if res.status_code != 200: 
+                print(f"   ⚠️ Il server ha bloccato la pagina con codice {res.status_code}.")
+                break
             data = plistlib.loads(res.content)
             players = data.get('playerRanks', []) or data.get('rows', [])
-            if not players: break
+            if not players: 
+                print("   🏁 Fine della lista giocatori raggiunta!")
+                break
             for p in players:
                 pid = p.get('playerID') or p.get('p') or p.get('id')
                 name = p.get('nick') or p.get('n') or p.get('name')
                 if pid: all_players[int(pid)] = name
             offset += 100
             time.sleep(random.uniform(0.4, 1.1))
-        except: break
-    print(f"✅ Mappati {len(all_players)} nomi giocatori.")
+        except Exception as e: 
+            print(f"   💥 Errore di lettura classifica: {e}")
+            break
+    print(f"✅ [CLASSIFICA] Finito. Ho imparato i nomi di {len(all_players)} giocatori.")
     return all_players
 
 def fetch_alliance_ranking(client):
@@ -147,15 +170,18 @@ def fetch_alliance_ranking(client):
     url = f"{BACKEND_URL}/XYRALITY/WebObjects/{SERVER_ID}.woa/wa/QueryAction/allianceRanks"
     all_alliances = {}
     offset = 0
-    print(f"🚀 Recupero Classifica Alleanze...")
+    print(f"\n🚀 [ALLEANZE] Inizio a sfogliare l'elenco delle alleanze...")
     while True:
         payload = {'offset': str(offset), 'limit': '100', 'type': '(alliance_rank)', 'worldId': WORLD_ID}
         try:
+            print(f"   🛡️ Leggo Pagina Alleanze {(offset//100) + 1}...")
             res = session.post(url, data=payload, timeout=20)
             if res.status_code != 200: break
             data = plistlib.loads(res.content)
             alliances = data.get('allianceRanks', []) or data.get('rows', [])
-            if not alliances: break
+            if not alliances: 
+                print("   🏁 Fine della lista alleanze raggiunta!")
+                break
             for a in alliances:
                 aid = a.get('allianceID') or a.get('a') or a.get('id')
                 name = a.get('name') or a.get('n')
@@ -163,11 +189,10 @@ def fetch_alliance_ranking(client):
             offset += 100
             time.sleep(random.uniform(0.4, 1.1))
         except: break
-    print(f"✅ Mappate {len(all_alliances)} alleanze.")
+    print(f"✅ [ALLEANZE] Finito. Ho mappato {len(all_alliances)} alleanze nel server.")
     return all_alliances
 
 def process_tile_public(x, y, session, tmp_map):
-    """Scansione JTILE Pubblica (Senza Login). Non inserisce i nomi."""
     url = f"{BACKEND_URL}/maps/{SERVER_ID}/{x}_{y}.jtile"
     try:
         time.sleep(random.uniform(0.05, 0.15))
@@ -240,8 +265,7 @@ def extract_hidden_ids(node, known_map, found_set):
             extract_hidden_ids(item, known_map, found_set)
 
 def enrich_with_habitat_ids(client, temp_map, castelli_senza_id):
-    """Arricchimento ID Mirato"""
-    print("🔑 Avvio recupero HabitatID via MapAction (Modalità Mirata)...")
+    print("\n🔑 [ID SEGRETI] Avvio estrazione HabitatID mancanti tramite chiamate MapAction...")
     session = requests.Session()
     for cookie in client.cookies: session.cookies.set(cookie['name'], cookie['value'])
     
@@ -262,10 +286,10 @@ def enrich_with_habitat_ids(client, temp_map, castelli_senza_id):
     for entry in castelli_senza_id.values():
         zone_da_scaricare.add((entry['x'] // 32, entry['y'] // 32))
     
-    print(f"🗺️ Zone da interrogare per i nuovi ID: {len(zone_da_scaricare)}")
+    print(f"🗺️ [ID SEGRETI] Ho raggruppato i nuovi castelli in {len(zone_da_scaricare)} quadranti.")
     habitat_trovati = 0
     
-    for tx, ty in zone_da_scaricare:
+    for count, (tx, ty) in enumerate(zone_da_scaricare, 1):
         url = f"{BACKEND_URL}/XYRALITY/WebObjects/{SERVER_ID}.woa/wa/MapAction/map"
         payload = {
             'mapX': str(tx*32), 'mapY': str(ty*32), 
@@ -273,6 +297,7 @@ def enrich_with_habitat_ids(client, temp_map, castelli_senza_id):
             'worldId': WORLD_ID, 'logoutUrl': 'http://lordsandknights.com/'
         }
         try:
+            print(f"   🕵️‍♂️ [{count}/{len(zone_da_scaricare)}] Faccio una richiesta privata per il quadrante {tx}_{ty}...")
             time.sleep(random.uniform(1.5, 3.5)) 
             res = session.post(url, data=payload, timeout=15)
             if res.status_code == 200:
@@ -280,11 +305,15 @@ def enrich_with_habitat_ids(client, temp_map, castelli_senza_id):
                 found_in_this_request = set()
                 extract_hidden_ids(data, temp_map, found_in_this_request)
                 habitat_trovati += len(found_in_this_request)
-        except Exception: continue
+                print(f"      ✔️ Estratti {len(found_in_this_request)} chiavi primarie!")
+        except Exception: 
+            print(f"      ❌ Errore durante l'ispezione del quadrante {tx}_{ty}.")
+            continue
 
-    print(f"🎯 Finito! Aggiunti {habitat_trovati} nuovi HabitatID nel database.")
+    print(f"🎯 [ID SEGRETI] Finito! Aggiunti {habitat_trovati} nuovi HabitatID nel database.")
 
 def enrich_db_with_names(db, player_map, alliance_map):
+    print("\n📝 [UNIONE DATI] Sto associando i nomi alle coordinate grezze...")
     count_updated = 0
     for key, record in db.items():
         pid = record.get('p')
@@ -300,10 +329,12 @@ def enrich_db_with_names(db, player_map, alliance_map):
             if 'an' not in record or record['an'] == "" or (record['an'] != nome_alleanza and nome_alleanza != ""):
                  record['an'] = nome_alleanza
                  
-    print(f"♻️ Nomi e Alleanze aggiornati per {count_updated} castelli nel database.")
+    print(f"♻️ [UNIONE DATI] Perfetto, i nomi di giocatori e alleanze sono stati applicati su {count_updated} castelli nel database.")
     return db
 
 def run_inactivity_check(data):
+    print("\n⏳ [INATTIVITÀ] Calcolo chi sta giocando e chi sta dormendo...")
+    inattivi_trovati = 0
     for key, h in data.items():
         if not h.get('p') or h['p'] == 0: continue
         firma = f"{h.get('pn', 'Sconosciuto')}|{h.get('a', 0)}|{h['n']}|{h['pt']}"
@@ -316,10 +347,15 @@ def run_inactivity_check(data):
         if h.get('f') != firma:
             h['u'] = h['d']; h['f'] = firma; h['i'] = False
         else:
-            if (h['d'] - last) >= 86400: h['i'] = True
+            if (h['d'] - last) >= 86400: 
+                h['i'] = True
+                inattivi_trovati += 1
+    
+    print(f"🛌 [INATTIVITÀ] Attualmente ci sono {inattivi_trovati} castelli inattivi da più di 24 ore.")
     return data
 
 def run_history_check(old_db_list, new_db_list, history_file):
+    print("\n🕰️ [CRONOLOGIA] Verifico chi ha cambiato bandiera o nome...")
     history = []
     if os.path.exists(history_file):
         try:
@@ -352,7 +388,7 @@ def run_history_check(old_db_list, new_db_list, history_file):
             new_name = new_data['n']
             if old_name and old_name != "Sconosciuto" and new_name and new_name != "Sconosciuto" and old_name != new_name:
                 new_events.append({"type": "name", "p": pid, "old": old_name, "new": new_name, "d": now})
-                print(f"📜 CRONOLOGIA: Giocatore {pid} ha cambiato nome da '{old_name}' a '{new_name}'")
+                print(f"   📜 [EVENTO] Il Giocatore {pid} ha cambiato nome da '{old_name}' a '{new_name}'")
             
             old_ally = old_data['a']
             new_ally = new_data['a']
@@ -366,27 +402,37 @@ def run_history_check(old_db_list, new_db_list, history_file):
                     "new_name": new_data['an'], 
                     "d": now
                 })
-                print(f"📜 CRONOLOGIA: Giocatore {pid} ha cambiato alleanza da {old_ally} ({old_data['an']}) a {new_ally} ({new_data['an']})")
+                print(f"   📜 [EVENTO] Il Giocatore {pid} ha cambiato alleanza da {old_ally} ({old_data['an']}) a {new_ally} ({new_data['an']})")
 
     if new_events:
+        print(f"📥 [CRONOLOGIA] Salvo {len(new_events)} nuovi eventi nel file storico.")
         history.extend(new_events)
         with open(history_file, 'w', encoding='utf-8') as f: 
             json.dump(history[-5000:], f, indent=2)
+    else:
+        print("💤 [CRONOLOGIA] Nessun cambiamento rilevato tra i giocatori.")
 
 
 def run_unified_scanner():
-    print("🚀 FASE 1: INIZIALIZZAZIONE")
+    print("=====================================================")
+    print("🚀 FASE 1: INIZIALIZZAZIONE E MEMORIA")
+    print("=====================================================")
+    
     if not os.path.exists(FILE_DATABASE):
+        print(f"📄 Il file '{FILE_DATABASE}' non esiste. Lo creo nuovo di zecca.")
         with open(FILE_DATABASE, 'w') as f: json.dump([], f)
         
     temp_map = {}
     with open(FILE_DATABASE, 'r') as f:
+        print(f"📥 Sto caricando il vecchio database '{FILE_DATABASE}' nella memoria temporanea...")
         for entry in json.load(f): temp_map[f"{entry['x']}_{entry['y']}"] = entry
         
     old_db_list = copy.deepcopy(list(temp_map.values()))
-    print(f"📂 Database caricato: {len(temp_map)} castelli.")
+    print(f"📸 Ho scattato la 'fotografia' del database vecchio ({len(temp_map)} castelli noti) per il controllo storico.")
 
-    print("\n🌍 FASE 2: SCANSIONE MAPPA PUBBLICA (Senza Login)")
+    print("\n=====================================================")
+    print("🌍 FASE 2: SCANSIONE MAPPA PUBBLICA (Modo Stealth)")
+    print("=====================================================")
     session = requests.Session()
     session.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
@@ -399,8 +445,10 @@ def run_unified_scanner():
         tx, ty = entry['x'] // 32, entry['y'] // 32
         punti_caldi[f"{tx}_{ty}"] = (tx, ty)
 
+    print(f"🔥 Prima passata: Aggiorno al volo {len(punti_caldi)} quadranti caldi già conosciuti...")
     for tx, ty in punti_caldi.values():
         process_tile_public(tx, ty, session, temp_map)
+    print("✅ Punti caldi aggiornati.")
 
     centerX, centerY = 256, 256
     if temp_map:
@@ -408,6 +456,7 @@ def run_unified_scanner():
         if vals:
             centerX = sum(e['x']//32 for e in vals) // len(vals)
             centerY = sum(e['y']//32 for e in vals) // len(vals)
+    print(f"🚁 Avvio espansione a spirale dal centro di massa: Quadrante ({centerX}, {centerY})")
 
     vuoti = 0
     for r in range(1, 150):
@@ -426,6 +475,7 @@ def run_unified_scanner():
                 if 0 <= xMax <= 600: punti.append((xMax, j))
         
         punti = list(set(punti))
+        print(f"⭕ Anello {r}/150: Controllo {len(punti)} quadranti periferici...")
         
         for px, py in punti:
             if f"{px}_{py}" not in punti_caldi:
@@ -434,52 +484,62 @@ def run_unified_scanner():
                 punti_caldi[f"{px}_{py}"] = (px, py)
         
         if trovato: 
+            print(f"   🏰 Trovata vita nell'Anello {r}! Azzero il contatore dei deserti.")
             vuoti = 0
         else: 
             vuoti += 1
+            print(f"   🏜️ Nessun castello qui. Giri a vuoto consecutivi: {vuoti}/10")
             
         if vuoti >= 10: 
-            print(f"🛑 Raggiunto limite di spazi vuoti (Raggio: {r}). Fine mappa rilevata.")
+            print(f"🛑 Mi fermo: Ho superato mari e montagne per 10 anelli senza trovare nulla. Sono al bordo della mappa.")
             break
 
-    print("\n🔐 FASE 3: ACCESSO GIOCO E ARRICCHIMENTO DATI")
+    print("\n=====================================================")
+    print("🔐 FASE 3: ACCESSO GIOCO E RICERCA DATI SEGRETI")
+    print("=====================================================")
     EMAIL = os.getenv("LK_EMAIL")
     PASSWORD = os.getenv("LK_PASSWORD")
     
     client = None
     if EMAIL and PASSWORD:
         client = RePanzaClient.auto_login(EMAIL, PASSWORD)
+    else:
+        print("⚠️ LK_EMAIL o LK_PASSWORD mancanti nei Secrets di GitHub. Salto il login.")
     
     if client:
-        # Recupera nomi e alleanze
         player_map = fetch_ranking(client)
         alliance_map = fetch_alliance_ranking(client)
         
-        # Inserisce i nomi nel database grezzo
         temp_map = enrich_db_with_names(temp_map, player_map, alliance_map)
         
-        # Controlla ID Habitat mancanti
         castelli_senza_id = {k: v for k, v in temp_map.items() if 'id_habitat' not in v}
         if not castelli_senza_id:
-            print("⚡ Nessun nuovo castello rilevato. Salto estrazione HabitatID.")
+            print("\n⚡ Nessun nuovo castello rilevato. Non c'è bisogno di scaricare nuove chiavi primarie HabitatID.")
         else:
-            print(f"⚠️ Rilevati {len(castelli_senza_id)} nuovi castelli senza ID.")
+            print(f"\n⚠️ Ho rilevato {len(castelli_senza_id)} nuovi castelli a cui manca la chiave primaria.")
             enrich_with_habitat_ids(client, temp_map, castelli_senza_id)
     else:
-        print("❌ Login fallito. Impossibile scaricare nomi e nuovi ID Habitat.")
+        print("❌ Login non riuscito. Non posso né scaricare i nomi, né cercare i nuovi ID Habitat.")
         send_telegram_alert(WORLD_NAME)
 
-    print("\n💾 FASE 4: SALVATAGGIO FINALE E CRONOLOGIA")
+    print("\n=====================================================")
+    print("💾 FASE 4: ELABORAZIONI FINALI E SALVATAGGIO")
+    print("=====================================================")
+    
     temp_map = run_inactivity_check(temp_map)
     new_db_list = list(temp_map.values())
     run_history_check(old_db_list, new_db_list, FILE_HISTORY)
     
+    print("🧹 Pulizia database: Elimino i castelli spariti dalla mappa da più di 3 giorni...")
     final_list = [v for v in temp_map.values() if v['d'] > (time.time() - 259200)]
     
+    print(f"📦 Compressione e scrittura nel file {FILE_DATABASE}...")
     with open(FILE_DATABASE, 'w', encoding='utf-8') as f:
         json.dump(final_list, f, indent=2, ensure_ascii=False)
     
-    print(f"✅ Operazione conclusa con successo! {len(final_list)} record salvati.")
+    print("\n=====================================================")
+    print(f"✅ OPERAZIONE COMPLETATA! Database aggiornato e chiuso. ({len(final_list)} castelli in totale)")
+    print("=====================================================")
 
 if __name__ == "__main__":
     run_unified_scanner()
