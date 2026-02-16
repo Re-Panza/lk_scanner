@@ -22,7 +22,7 @@ def send_telegram_alert(world_name):
     if not token or not chat_id: 
         print("⚠️ [SISTEMA] Credenziali Telegram mancanti, salto l'invio dell'allarme.")
         return
-    messaggio = f"Capo, il login per '{world_name}' è fallito. La mappa è stata aggiornata, ma i nomi e i nuovi ID non sono stati scaricati. Controlla lo screenshot su GitHub!"
+    messaggio = f"Capo, il login per '{world_name}' è fallito. La mappa è stata aggiornata, ma non sono riucito a loggarmi, controlla se il bot è stato bannato"
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     try: 
         requests.post(url, json={"chat_id": chat_id, "text": messaggio})
