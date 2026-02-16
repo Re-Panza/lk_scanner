@@ -9,12 +9,12 @@ import random
 from playwright.sync_api import sync_playwright
 
 # --- CONFIGURAZIONE ---
-SERVER_ID = "LKWorldServer-IT-15"
-WORLD_ID = "337"
-WORLD_NAME = "Italia 15" 
-BACKEND_URL = "https://backend1.lordsandknights.com"
-FILE_DATABASE = "database_mondo_337.json"
-FILE_HISTORY = "cronologia_337.json"
+SERVER_ID = "LKWorldServer-RE-IT-6"
+WORLD_ID = "327"
+WORLD_NAME = "Italia VI" 
+BACKEND_URL = "https://backend3.lordsandknights.com"
+FILE_DATABASE = "database_mondo_327.json"
+FILE_HISTORY = "cronologia_327.json"
 
 def send_telegram_alert(world_name):
     token = os.getenv("TELEGRAM_TOKEN")
@@ -22,7 +22,7 @@ def send_telegram_alert(world_name):
     if not token or not chat_id: 
         print("⚠️ [SISTEMA] Credenziali Telegram mancanti, salto l'invio dell'allarme.")
         return
-    messaggio = f"Capo, il login per '{world_name}' è fallito. La mappa è stata aggiornata, ma non sono riucito a loggarmi, controlla se il bot è stato bannato"
+    messaggio = f"Capo, il login per '{world_name}' è fallito. La mappa è stata aggiornata, ma i nomi e i nuovi ID non sono stati scaricati. Controlla lo screenshot su GitHub!"
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     try: 
         requests.post(url, json={"chat_id": chat_id, "text": messaggio})
