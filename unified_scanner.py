@@ -6,7 +6,11 @@ import plistlib
 import re
 import copy 
 import random 
+import functools
 from playwright.sync_api import sync_playwright
+
+# FORZA PYTHON A SCRIVERE I LOG IN TEMPO REALE SENZA ATTENDERE LA FINE DELLO SCRIPT
+print = functools.partial(print, flush=True)
 
 # --- CONFIGURAZIONE ---
 SERVER_ID = "LKWorldServer-RE-IT-6"
@@ -22,8 +26,10 @@ def send_telegram_alert(world_name):
     if not token or not chat_id: 
         print("⚠️ [SISTEMA] Credenziali Telegram mancanti, salto l'invio dell'allarme.")
         return
-    messaggio = f"Capo, il login per '{world_name}' è fallito. La mappa è stata aggiornata, ma i nomi e i nuovi ID non sono stati scaricati. Controlla lo screenshot su GitHub!"
+        
+    messaggio = f"Capo, il bot non riesce a loggarsi nel mondo '{world_name}' quindi probabilmente è stato bannato, controlla."
     url = f"https://api.telegram.org/bot{token}/sendMessage"
+    
     try: 
         requests.post(url, json={"chat_id": chat_id, "text": messaggio})
         print("📲 [TELEGRAM] Messaggio di allarme inviato con successo!")
@@ -64,9 +70,11 @@ class RePanzaClient:
                 selector_mondo = page.locator(f".button-game-world--title:has-text('{WORLD_NAME}')").first
                 selector_ok = page.locator("button:has-text('OK')")
                 
-                print(f"   [LOGIN] ⏳ Attesa comparsa del mondo '{WORLD_NAME}' (Max 10 minuti)...")
+                print(f"   [LOGIN] ⏳ Attesa comparsa del mondo '{WORLD_NAME}' (Max 1 minuto)...")
                 start_time = time.time()
-                while time.time() - start_time < 600:
+                
+                # MODIFICA: Il timeout ora è di 60 secondi
+                while time.time() - start_time < 60:
                     if selector_ok.is_visible(): 
                         try: 
                             print("   [LOGIN] Popup OK trovato, lo chiudo.")
@@ -88,7 +96,7 @@ class RePanzaClient:
                         return RePanzaClient(final_cookies, ua)
                     time.sleep(random.uniform(0.8, 1.3))
                 
-                print("🛑 [LOGIN] Timeout: Sono passati 10 minuti e il gioco non mi ha fatto entrare.")
+                print("🛑 [LOGIN] Timeout: È passato 1 minuto e il gioco non mi ha fatto entrare.")
                 try: 
                     page.screenshot(path="debug_login_error.png", full_page=True)
                     print("📸 [LOGIN] Ho scattato una foto dello schermo per capire l'errore (salvata nei log).")
@@ -478,10 +486,14 @@ def run_unified_scanner():
         print(f"⭕ Anello {r}/150: Controllo {len(punti)} quadranti periferici...")
         
         for px, py in punti:
-            if f"{px}_{py}" not in punti_caldi:
+            chiave_quadrante = f"{px}_{py}"
+            
+            if chiave_quadrante in punti_caldi:
+                trovato = True
+            else:
                 if process_tile_public(px, py, session, temp_map): 
                     trovato = True
-                punti_caldi[f"{px}_{py}"] = (px, py)
+                punti_caldi[chiave_quadrante] = (px, py)
         
         if trovato: 
             print(f"   🏰 Trovata vita nell'Anello {r}! Azzero il contatore dei deserti.")
