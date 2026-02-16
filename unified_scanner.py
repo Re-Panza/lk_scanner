@@ -500,9 +500,9 @@ def run_unified_scanner():
             vuoti = 0
         else: 
             vuoti += 1
-            print(f"   🏜️ Nessun castello qui. Giri a vuoto consecutivi: {vuoti}/10")
+            print(f"   🏜️ Nessun castello qui. Giri a vuoto consecutivi: {vuoti}/5")
             
-        if vuoti >= 10: 
+        if vuoti >= 5: 
             print(f"🛑 Mi fermo: Ho superato mari e montagne per 10 anelli senza trovare nulla. Sono al bordo della mappa.")
             break
 
