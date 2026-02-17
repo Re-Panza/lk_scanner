@@ -476,7 +476,7 @@ def run_unified_scanner():
         process_tile_public(tx, ty, session, temp_map)
     print("✅ Punti caldi aggiornati.")
 
-    centerX, centerY = 256, 256
+    centerX, centerY = 512, 512
     if temp_map:
         vals = list(temp_map.values())
         if vals:
