@@ -498,7 +498,7 @@ def run_unified_scanner():
     print(f"🚁 Avvio espansione a spirale dal centro di massa: Quadrante ({centerX}, {centerY})")
 
     vuoti = 0
-    for r in range(1, 400):
+    for r in range(1, 150):
         trovato = False
         xMin, xMax = centerX - r, centerX + r
         yMin, yMax = centerY - r, centerY + r
@@ -514,7 +514,7 @@ def run_unified_scanner():
                 if 0 <= xMax <= 600: punti.append((xMax, j))
         
         punti = list(set(punti))
-        print(f"⭕ Anello {r}/400: Controllo {len(punti)} quadranti periferici...")
+        print(f"⭕ Anello {r}/150: Controllo {len(punti)} quadranti periferici...")
         
         for px, py in punti:
             chiave_quadrante = f"{px}_{py}"
@@ -530,10 +530,10 @@ def run_unified_scanner():
             vuoti = 0
         else: 
             vuoti += 1
-            print(f"   🏜️ Nessun castello qui. Giri a vuoto consecutivi: {vuoti}/6")
+            print(f"   🏜️ Nessun castello qui. Giri a vuoto consecutivi: {vuoti}/3")
             
-        if vuoti >= 6: 
-            print(f"🛑 Mi fermo: Ho scansionato 6 anelli vuoti, la mappa è sicuramente finita.")
+        if vuoti >=3: 
+            print(f"🛑 Mi fermo: Ho scansionato 3 anelli vuoti, la mappa è sicuramente finita.")
             break
 
     # ANALISI SMART SCAN
