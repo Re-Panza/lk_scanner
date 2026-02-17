@@ -50,7 +50,7 @@ class RePanzaClient:
             print("   [LOGIN] Avvio browser Chrome invisibile...")
             browser = p.chromium.launch(headless=True, args=args)
             
-            # Impostato in italiano per evitare problemi di lingua su GitHub
+            # Forzato fuso orario e lingua italiana
             context = browser.new_context(
                 user_agent=ua,
                 locale='it-IT',
@@ -73,6 +73,7 @@ class RePanzaClient:
                 time.sleep(random.uniform(0.5, 1.2))
                 print("   [LOGIN] Clicco sul tasto di accesso...")
                 
+                # Tasto universale per evitare blocchi legati alla lingua del server
                 page.locator('button:has-text("ACCESSO"), button:has-text("LOG IN")').first.click()
                 
                 selector_mondo = page.locator(f".button-game-world--title:has-text('{WORLD_NAME}')").first
@@ -105,14 +106,12 @@ class RePanzaClient:
                 print("🛑 [LOGIN] Timeout: È passato 1 minuto e il gioco non mi ha fatto entrare.")
                 try: 
                     page.screenshot(path="debug_login_error.png", full_page=True)
-                    print("📸 [LOGIN] Ho scattato una foto dello schermo per capire l'errore (salvata nei log).")
                 except: pass
 
             except Exception as e:
                 print(f"⚠️ [LOGIN] Errore critico durante la navigazione: {e}")
                 try: 
                     page.screenshot(path="debug_login_error.png", full_page=True)
-                    print("📸 [LOGIN] Foto di emergenza scattata.")
                 except: pass
             
             browser.close()
@@ -142,25 +141,19 @@ def fetch_ranking(client):
     while True:
         payload = {'offset': str(offset), 'limit': '100', 'type': '(player_rank)', 'worldId': WORLD_ID}
         try:
-            print(f"   📖 Leggo Pagina Giocatori {(offset//100) + 1} (da {offset} a {offset+100})...")
+            print(f"   📖 Leggo Pagina Giocatori {(offset//100) + 1}...")
             res = session.post(url, data=payload, timeout=20)
-            if res.status_code != 200: 
-                print(f"   ⚠️ Il server ha bloccato la pagina con codice {res.status_code}.")
-                break
+            if res.status_code != 200: break
             data = plistlib.loads(res.content)
             players = data.get('playerRanks', []) or data.get('rows', [])
-            if not players: 
-                print("   🏁 Fine della lista giocatori raggiunta!")
-                break
+            if not players: break
             for p in players:
                 pid = p.get('playerID') or p.get('p') or p.get('id')
                 name = p.get('nick') or p.get('n') or p.get('name')
                 if pid: all_players[int(pid)] = name
             offset += 100
             time.sleep(random.uniform(0.4, 1.1))
-        except Exception as e: 
-            print(f"   💥 Errore di lettura classifica: {e}")
-            break
+        except: break
     print(f"✅ [CLASSIFICA] Finito. Ho imparato i nomi di {len(all_players)} giocatori.")
     return all_players
 
@@ -193,9 +186,7 @@ def fetch_alliance_ranking(client):
             if res.status_code != 200: break
             data = plistlib.loads(res.content)
             alliances = data.get('allianceRanks', []) or data.get('rows', [])
-            if not alliances: 
-                print("   🏁 Fine della lista alleanze raggiunta!")
-                break
+            if not alliances: break
             for a in alliances:
                 aid = a.get('allianceID') or a.get('a') or a.get('id')
                 name = a.get('name') or a.get('n')
@@ -211,11 +202,9 @@ def process_tile_public(x, y, session, tmp_map):
     try:
         time.sleep(random.uniform(0.05, 0.15))
         response = session.get(url, timeout=10)
+        if response.status_code != 200: return False
         
-        if response.status_code != 200: 
-            print(f"   🛑 ERRORE SERVER: Il server ha risposto con codice {response.status_code} al quadrante {x}_{y}")
-            return False
-            
+        # Scarto rapido dei file vuoti per velocizzare
         testo_pulito = response.text.replace(" ", "").replace("\n", "")
         if "callback_politicalmap({})" in testo_pulito:
             return False
@@ -228,33 +217,34 @@ def process_tile_public(x, y, session, tmp_map):
             if 'habitatArray' in data:
                 for h in data['habitatArray']:
                     
-                    # ATTENZIONE: Qui ho lasciato INTENZIONALMENTE il codice fallato originale per farti vedere il crash!
-                    pid = int(h['playerid'])
+                    # BUG RISOLTO: Parsing sicuro dei dati per ignorare le stringhe vuote
+                    pid = int(h.get('playerid') or 0)
+                    aid = int(h.get('allianceid') or 0)
+                    pts = int(h.get('points') or 0)
+                    htype = int(h.get('habitattype') or 0)
                     
                     key = f"{h['mapx']}_{h['mapy']}"
                     
                     if key in tmp_map:
                         tmp_map[key].update({
                             'p': pid,
-                            'a': int(h['allianceid']),
+                            'a': aid,
                             'n': h.get('name', ''),
-                            'pt': int(h['points']),
-                            't': int(h['habitattype']),
+                            'pt': pts,
+                            't': htype,
                             'd': int(time.time())
                         })
                     else:
                         tmp_map[key] = {
                             'p': pid, 'pn': "Sconosciuto",
-                            'a': int(h['allianceid']), 'an': "",
+                            'a': aid, 'an': "",
                             'n': h.get('name', ''),
                             'x': int(h['mapx']), 'y': int(h['mapy']),
-                            'pt': int(h['points']), 't': int(h['habitattype']),
+                            'pt': pts, 't': htype,
                             'd': int(time.time())
                         }
                 return True
-    except Exception as e: 
-        # Modificato per mostrare finalmente in chiaro cosa succede
-        print(f"   ⚠️ ERRORE PYTHON al quadrante {x}_{y}: {e}")
+    except: pass
     return False
 
 def extract_hidden_ids(node, known_map, found_set):
@@ -476,6 +466,7 @@ def run_unified_scanner():
         process_tile_public(tx, ty, session, temp_map)
     print("✅ Punti caldi aggiornati.")
 
+    # Impostato centro sicuro mappa
     centerX, centerY = 512, 512
     if temp_map:
         vals = list(temp_map.values())
