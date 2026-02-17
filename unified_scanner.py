@@ -49,8 +49,15 @@ class RePanzaClient:
             args = ['--disable-blink-features=AutomationControlled', '--no-sandbox']
             print("   [LOGIN] Avvio browser Chrome invisibile...")
             browser = p.chromium.launch(headless=True, args=args)
-            context = browser.new_context(user_agent=ua)
+            
+            # Impostato in italiano per evitare problemi di lingua su GitHub
+            context = browser.new_context(
+                user_agent=ua,
+                locale='it-IT',
+                timezone_id='Europe/Rome'
+            )
             page = context.new_page()
+            
             try:
                 print("   [LOGIN] Mi collego alla homepage di Lords & Knights...")
                 page.goto("https://www.lordsandknights.com/", timeout=120000)
@@ -64,16 +71,15 @@ class RePanzaClient:
                 time.sleep(random.uniform(0.3, 0.8))
                 page.type('input[placeholder="Password"]', password, delay=random.randint(50, 150))
                 time.sleep(random.uniform(0.5, 1.2))
-                print("   [LOGIN] Clicco su LOG IN...")
-                page.click('button:has-text("LOG IN")')
+                print("   [LOGIN] Clicco sul tasto di accesso...")
+                
+                page.locator('button:has-text("ACCESSO"), button:has-text("LOG IN")').first.click()
                 
                 selector_mondo = page.locator(f".button-game-world--title:has-text('{WORLD_NAME}')").first
                 selector_ok = page.locator("button:has-text('OK')")
                 
                 print(f"   [LOGIN] ⏳ Attesa comparsa del mondo '{WORLD_NAME}' (Max 1 minuto)...")
                 start_time = time.time()
-                
-                # MODIFICA: Il timeout ora è di 60 secondi
                 while time.time() - start_time < 60:
                     if selector_ok.is_visible(): 
                         try: 
@@ -205,7 +211,14 @@ def process_tile_public(x, y, session, tmp_map):
     try:
         time.sleep(random.uniform(0.05, 0.15))
         response = session.get(url, timeout=10)
-        if response.status_code != 200: return False
+        
+        if response.status_code != 200: 
+            print(f"   🛑 ERRORE SERVER: Il server ha risposto con codice {response.status_code} al quadrante {x}_{y}")
+            return False
+            
+        testo_pulito = response.text.replace(" ", "").replace("\n", "")
+        if "callback_politicalmap({})" in testo_pulito:
+            return False
         
         start = response.text.find('(')
         end = response.text.rfind(')')
@@ -214,7 +227,10 @@ def process_tile_public(x, y, session, tmp_map):
             data = json.loads(response.text[start+1:end])
             if 'habitatArray' in data:
                 for h in data['habitatArray']:
+                    
+                    # ATTENZIONE: Qui ho lasciato INTENZIONALMENTE il codice fallato originale per farti vedere il crash!
                     pid = int(h['playerid'])
+                    
                     key = f"{h['mapx']}_{h['mapy']}"
                     
                     if key in tmp_map:
@@ -236,7 +252,9 @@ def process_tile_public(x, y, session, tmp_map):
                             'd': int(time.time())
                         }
                 return True
-    except: pass
+    except Exception as e: 
+        # Modificato per mostrare finalmente in chiaro cosa succede
+        print(f"   ⚠️ ERRORE PYTHON al quadrante {x}_{y}: {e}")
     return False
 
 def extract_hidden_ids(node, known_map, found_set):
@@ -467,7 +485,7 @@ def run_unified_scanner():
     print(f"🚁 Avvio espansione a spirale dal centro di massa: Quadrante ({centerX}, {centerY})")
 
     vuoti = 0
-    for r in range(1, 150):
+    for r in range(1, 400):
         trovato = False
         xMin, xMax = centerX - r, centerX + r
         yMin, yMax = centerY - r, centerY + r
@@ -483,7 +501,7 @@ def run_unified_scanner():
                 if 0 <= xMax <= 600: punti.append((xMax, j))
         
         punti = list(set(punti))
-        print(f"⭕ Anello {r}/150: Controllo {len(punti)} quadranti periferici...")
+        print(f"⭕ Anello {r}/400: Controllo {len(punti)} quadranti periferici...")
         
         for px, py in punti:
             chiave_quadrante = f"{px}_{py}"
@@ -500,10 +518,10 @@ def run_unified_scanner():
             vuoti = 0
         else: 
             vuoti += 1
-            print(f"   🏜️ Nessun castello qui. Giri a vuoto consecutivi: {vuoti}/5")
+            print(f"   🏜️ Nessun castello qui. Giri a vuoto consecutivi: {vuoti}/6")
             
-        if vuoti >= 5: 
-            print(f"🛑 Mi fermo: Ho superato mari e montagne per 10 anelli senza trovare nulla. Sono al bordo della mappa.")
+        if vuoti >= 6: 
+            print(f"🛑 Mi fermo: Ho scansionato 6 anelli vuoti, la mappa è sicuramente finita.")
             break
 
     print("\n=====================================================")
