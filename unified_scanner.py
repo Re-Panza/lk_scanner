@@ -9,7 +9,7 @@ import random
 import functools
 from playwright.sync_api import sync_playwright
 
-# FORZA PYTHON A SCRIVERE I LOG IN TEMPO REALE SENZA ATTENDERE LA FINE DELLO SCRIPT
+# FORZA PYTHON A SCRIVERE I LOG IN TEMPO REALE
 print = functools.partial(print, flush=True)
 
 # =======================================================
@@ -451,13 +451,21 @@ def run_unified_scanner():
     })
     
     punti_caldi = {}
+    cache_conteggi_tile = {}
+    
+    # Pre-calcolo la cache di quanti castelli ci sono nei quadranti noti
     for entry in temp_map.values():
         tx, ty = entry['x'] // 32, entry['y'] // 32
-        punti_caldi[f"{tx}_{ty}"] = (tx, ty)
+        chiave_tile = f"{tx}_{ty}"
+        punti_caldi[chiave_tile] = (tx, ty)
+        cache_conteggi_tile[chiave_tile] = cache_conteggi_tile.get(chiave_tile, 0) + 1
 
     print(f"🔥 Prima passata: Aggiorno al volo {len(punti_caldi)} quadranti caldi già conosciuti...")
     for tx, ty in punti_caldi.values():
-        process_tile_public(tx, ty, session, temp_map)
+        num = process_tile_public(tx, ty, session, temp_map)
+        cache_conteggi_tile[f"{tx}_{ty}"] = num # Aggiorno la cache con il valore reale fresco
+        if num > 0:
+            print(f"   📍 [AGGIORNAMENTO] Quadrante {tx}_{ty}: {num} castelli presenti.")
     print("✅ Punti caldi aggiornati.")
 
     centerX, centerY = 256, 256
@@ -471,6 +479,7 @@ def run_unified_scanner():
     vuoti = 0
     for r in range(1, 150):
         trovato = False
+        castelli_giro = 0
         xMin, xMax = centerX - r, centerX + r
         yMin, yMax = centerY - r, centerY + r
         punti = []
@@ -490,24 +499,30 @@ def run_unified_scanner():
         for px, py in punti:
             chiave_quadrante = f"{px}_{py}"
             
-            # Se è già nei punti caldi, non sprechiamo richieste HTTP, ma sappiamo che c'è vita!
+            # SE È GIÀ NOTO, LO PRENDO DALLA CACHE MA STAMPO LO STESSO
             if chiave_quadrante in punti_caldi:
+                num = cache_conteggi_tile.get(chiave_quadrante, 0)
                 trovato = True
+                castelli_giro += num
+                if num > 0:
+                    print(f"   💾 [MEMORIA] Quadrante {px}_{py}: Ci sono {num} castelli (Già noti).")
             else:
-                # SE È UN QUADRANTE NUOVO, LO INTERROGHIAMO
-                num_castelli = process_tile_public(px, py, session, temp_map)
-                if num_castelli > 0: 
+                # SE È NUOVO, INTERROGO IL SERVER
+                num = process_tile_public(px, py, session, temp_map)
+                if num > 0: 
                     trovato = True
-                    print(f"   ✨ Trovati {num_castelli} castelli nel quadrante {px}_{py}!")
-                # Lo registriamo per non interrogarlo mai più
+                    print(f"   ✨ [NUOVO] Quadrante {px}_{py}: Trovati {num} castelli!")
+                    castelli_giro += num
+                # Lo registro come punto caldo
                 punti_caldi[chiave_quadrante] = (px, py)
+                cache_conteggi_tile[chiave_quadrante] = num
         
         if trovato: 
-            print(f"   🏰 Trovata vita nell'Anello {r}! Azzero il contatore dei deserti.")
+            print(f"   🏰 Anello {r} completato! Totale castelli attivi in questa zona: {castelli_giro}. Azzero vuoti.")
             vuoti = 0
         else: 
             vuoti += 1
-            print(f"   🏜️ Nessun castello qui. Giri a vuoto consecutivi: {vuoti}/5")
+            print(f"   🏜️ Anello {r} deserto. Giri a vuoto consecutivi: {vuoti}/5")
             
         if vuoti >= 5: 
             print(f"🛑 Mi fermo: Ho superato mari e montagne per 5 anelli senza trovare nulla. Sono al bordo della mappa.")
