@@ -13,13 +13,13 @@ from playwright.sync_api import sync_playwright
 print = functools.partial(print, flush=True)
 
 # =======================================================
-# --- CONFIGURAZIONE: MODIFICA SOLO QUESTI 6 PARAMETRI ---
-SERVER_ID = "LKWorldServer-XX-XX-X"    # Es: LKWorldServer-IT-15
-WORLD_ID = "XXX"                       # Es: 337
-WORLD_NAME = "Nome Esatto Mondo"       # Es: Italia 15 (DEVE ESSERE IDENTICO AL TASTO NEL GIOCO)
-BACKEND_URL = "https://backendX.lordsandknights.com" # Es: backend1, backend2 o backend3
-FILE_DATABASE = "database_mondo_XXX.json" # Cambia XXX col numero del mondo
-FILE_HISTORY = "cronologia_XXX.json"      # Cambia XXX col numero del mondo
+# --- CONFIGURAZIONE MONDO 327 (ITALIA VI) ---
+SERVER_ID = "LKWorldServer-RE-IT-6"
+WORLD_ID = "327"
+WORLD_NAME = "Italia VI" 
+BACKEND_URL = "https://backend3.lordsandknights.com"
+FILE_DATABASE = "database_mondo_327.json"
+FILE_HISTORY = "cronologia_327.json"
 # =======================================================
 
 def send_telegram_alert(world_name):
@@ -490,7 +490,7 @@ def run_unified_scanner():
         for px, py in punti:
             chiave_quadrante = f"{px}_{py}"
             
-            # SE IL QUADRANTE È GIÀ NEI PUNTI CALDI (SCANSIONATI PRIMA), LO SALTIAMO
+            # Se è già nei punti caldi, non sprechiamo richieste HTTP, ma sappiamo che c'è vita!
             if chiave_quadrante in punti_caldi:
                 trovato = True
             else:
@@ -499,6 +499,7 @@ def run_unified_scanner():
                 if num_castelli > 0: 
                     trovato = True
                     print(f"   ✨ Trovati {num_castelli} castelli nel quadrante {px}_{py}!")
+                # Lo registriamo per non interrogarlo mai più
                 punti_caldi[chiave_quadrante] = (px, py)
         
         if trovato: 
