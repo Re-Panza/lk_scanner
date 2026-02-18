@@ -12,13 +12,15 @@ from playwright.sync_api import sync_playwright
 # FORZA PYTHON A SCRIVERE I LOG IN TEMPO REALE SENZA ATTENDERE LA FINE DELLO SCRIPT
 print = functools.partial(print, flush=True)
 
-# --- CONFIGURAZIONE ---
-SERVER_ID = "LKWorldServer-RE-IT-6"
-WORLD_ID = "327"
-WORLD_NAME = "Italia VI" 
-BACKEND_URL = "https://backend3.lordsandknights.com"
-FILE_DATABASE = "database_mondo_327.json"
-FILE_HISTORY = "cronologia_327.json"
+# =======================================================
+# --- CONFIGURAZIONE: MODIFICA SOLO QUESTI 6 PARAMETRI ---
+SERVER_ID = "LKWorldServer-XX-XX-X"    # Es: LKWorldServer-IT-15
+WORLD_ID = "XXX"                       # Es: 337
+WORLD_NAME = "Nome Esatto Mondo"       # Es: Italia 15 (DEVE ESSERE IDENTICO AL TASTO NEL GIOCO)
+BACKEND_URL = "https://backendX.lordsandknights.com" # Es: backend1, backend2 o backend3
+FILE_DATABASE = "database_mondo_XXX.json" # Cambia XXX col numero del mondo
+FILE_HISTORY = "cronologia_XXX.json"      # Cambia XXX col numero del mondo
+# =======================================================
 
 def send_telegram_alert(world_name):
     token = os.getenv("TELEGRAM_TOKEN")
@@ -49,14 +51,8 @@ class RePanzaClient:
             args = ['--disable-blink-features=AutomationControlled', '--no-sandbox']
             print("   [LOGIN] Avvio browser Chrome invisibile...")
             browser = p.chromium.launch(headless=True, args=args)
-            
-            context = browser.new_context(
-                user_agent=ua,
-                locale='it-IT',
-                timezone_id='Europe/Rome'
-            )
+            context = browser.new_context(user_agent=ua)
             page = context.new_page()
-            
             try:
                 print("   [LOGIN] Mi collego alla homepage di Lords & Knights...")
                 page.goto("https://www.lordsandknights.com/", timeout=120000)
@@ -70,9 +66,8 @@ class RePanzaClient:
                 time.sleep(random.uniform(0.3, 0.8))
                 page.type('input[placeholder="Password"]', password, delay=random.randint(50, 150))
                 time.sleep(random.uniform(0.5, 1.2))
-                print("   [LOGIN] Clicco sul tasto di accesso...")
-                
-                page.locator('button:has-text("ACCESSO"), button:has-text("LOG IN")').first.click()
+                print("   [LOGIN] Clicco su LOG IN...")
+                page.click('button:has-text("LOG IN")')
                 
                 selector_mondo = page.locator(f".button-game-world--title:has-text('{WORLD_NAME}')").first
                 selector_ok = page.locator("button:has-text('OK')")
@@ -102,25 +97,34 @@ class RePanzaClient:
                     time.sleep(random.uniform(0.8, 1.3))
                 
                 print("🛑 [LOGIN] Timeout: È passato 1 minuto e il gioco non mi ha fatto entrare.")
-                try: page.screenshot(path="debug_login_error.png", full_page=True)
+                try: 
+                    page.screenshot(path="debug_login_error.png", full_page=True)
+                    print("📸 [LOGIN] Ho scattato una foto dello schermo per capire l'errore (salvata nei log).")
                 except: pass
 
             except Exception as e:
                 print(f"⚠️ [LOGIN] Errore critico durante la navigazione: {e}")
+                try: 
+                    page.screenshot(path="debug_login_error.png", full_page=True)
+                    print("📸 [LOGIN] Foto di emergenza scattata.")
+                except: pass
             
             browser.close()
             return None
 
-def fetch_ranking(client, missing_ids="ALL"):
+def fetch_ranking(client):
     session = requests.Session()
     for cookie in client.cookies: session.cookies.set(cookie['name'], cookie['value'])
+    
     session.headers.update({
         'User-Agent': client.user_agent,
         'Accept': 'application/x-bplist',
         'Content-Type': 'application/x-www-form-urlencoded',
         'XYClient-Client': 'lk_b_3',
         'XYClient-Loginclient': 'Chrome',
+        'XYClient-Loginclientversion': '10.8.0',
         'XYClient-Platform': 'browser',
+        'XYClient-Capabilities': 'base,fortress,city,parti%D0%B0l%CE%A4ran%D1%95its,starterpack,requestInformation,partialUpdate,regions,metropolis',
         'Origin': 'https://www.lordsandknights.com',
         'Referer': 'https://www.lordsandknights.com/'
     })
@@ -128,56 +132,45 @@ def fetch_ranking(client, missing_ids="ALL"):
     url = f"{BACKEND_URL}/XYRALITY/WebObjects/{SERVER_ID}.woa/wa/QueryAction/playerRanks"
     all_players = {}
     offset = 0
-    
-    full_scan = (missing_ids == "ALL")
-    if not full_scan and not missing_ids:
-        return all_players 
-
-    target_set = set() if full_scan else set(missing_ids)
-    mod_text = "COMPLETA" if full_scan else f"MIRATA ({len(target_set)} ID mancanti)"
-    print(f"\n🚀 [CLASSIFICA] Scansione Giocatori. Modalità: {mod_text}")
-
+    print(f"\n🚀 [CLASSIFICA] Inizio a sfogliare l'elenco di tutti i giocatori...")
     while True:
         payload = {'offset': str(offset), 'limit': '100', 'type': '(player_rank)', 'worldId': WORLD_ID}
         try:
-            print(f"   📖 Leggo Pagina Giocatori {(offset//100) + 1}...")
+            print(f"   📖 Leggo Pagina Giocatori {(offset//100) + 1} (da {offset} a {offset+100})...")
             res = session.post(url, data=payload, timeout=20)
-            if res.status_code != 200: break
+            if res.status_code != 200: 
+                print(f"   ⚠️ Il server ha bloccato la pagina con codice {res.status_code}.")
+                break
             data = plistlib.loads(res.content)
             players = data.get('playerRanks', []) or data.get('rows', [])
-            if not players: break
-            
-            for p in players:
-                pid = int(p.get('playerID') or p.get('p') or p.get('id') or 0)
-                name = p.get('nick') or p.get('n') or p.get('name') or ""
-                if pid: 
-                    all_players[pid] = name
-                    # Rimuove il giocatore dalla lista dei ricercati se lo ha trovato
-                    if not full_scan and pid in target_set:
-                        target_set.remove(pid)
-                        
-            # Se la lista dei ricercati si svuota, ferma subito il ciclo per salvare tempo!
-            if not full_scan and len(target_set) == 0:
-                print(f"   🎯 BINGO! Trovati tutti i giocatori cercati. Interrompo la scansione in anticipo.")
+            if not players: 
+                print("   🏁 Fine della lista giocatori raggiunta!")
                 break
-                
+            for p in players:
+                pid = p.get('playerID') or p.get('p') or p.get('id')
+                name = p.get('nick') or p.get('n') or p.get('name')
+                if pid: all_players[int(pid)] = name
             offset += 100
             time.sleep(random.uniform(0.4, 1.1))
-        except: break
-        
-    print(f"✅ [CLASSIFICA] Finito. Estratti {len(all_players)} nomi.")
+        except Exception as e: 
+            print(f"   💥 Errore di lettura classifica: {e}")
+            break
+    print(f"✅ [CLASSIFICA] Finito. Ho imparato i nomi di {len(all_players)} giocatori.")
     return all_players
 
-def fetch_alliance_ranking(client, missing_ids="ALL"):
+def fetch_alliance_ranking(client):
     session = requests.Session()
     for cookie in client.cookies: session.cookies.set(cookie['name'], cookie['value'])
+    
     session.headers.update({
         'User-Agent': client.user_agent,
         'Accept': 'application/x-bplist',
         'Content-Type': 'application/x-www-form-urlencoded',
         'XYClient-Client': 'lk_b_3',
         'XYClient-Loginclient': 'Chrome',
+        'XYClient-Loginclientversion': '10.8.0',
         'XYClient-Platform': 'browser',
+        'XYClient-Capabilities': 'base,fortress,city,parti%D0%B0l%CE%A4ran%D1%95its,starterpack,requestInformation,partialUpdate,regions,metropolis',
         'Origin': 'https://www.lordsandknights.com',
         'Referer': 'https://www.lordsandknights.com/'
     })
@@ -185,15 +178,7 @@ def fetch_alliance_ranking(client, missing_ids="ALL"):
     url = f"{BACKEND_URL}/XYRALITY/WebObjects/{SERVER_ID}.woa/wa/QueryAction/allianceRanks"
     all_alliances = {}
     offset = 0
-    
-    full_scan = (missing_ids == "ALL")
-    if not full_scan and not missing_ids:
-        return all_alliances
-
-    target_set = set() if full_scan else set(missing_ids)
-    mod_text = "COMPLETA" if full_scan else f"MIRATA ({len(target_set)} ID mancanti)"
-    print(f"\n🚀 [ALLEANZE] Scansione Alleanze. Modalità: {mod_text}")
-
+    print(f"\n🚀 [ALLEANZE] Inizio a sfogliare l'elenco delle alleanze...")
     while True:
         payload = {'offset': str(offset), 'limit': '100', 'type': '(alliance_rank)', 'worldId': WORLD_ID}
         try:
@@ -202,25 +187,17 @@ def fetch_alliance_ranking(client, missing_ids="ALL"):
             if res.status_code != 200: break
             data = plistlib.loads(res.content)
             alliances = data.get('allianceRanks', []) or data.get('rows', [])
-            if not alliances: break
-            
-            for a in alliances:
-                aid = int(a.get('allianceID') or a.get('a') or a.get('id') or 0)
-                name = a.get('name') or a.get('n') or ""
-                if aid: 
-                    all_alliances[aid] = name
-                    if not full_scan and aid in target_set:
-                        target_set.remove(aid)
-                        
-            if not full_scan and len(target_set) == 0:
-                print(f"   🎯 BINGO! Trovate tutte le alleanze cercate. Interrompo.")
+            if not alliances: 
+                print("   🏁 Fine della lista alleanze raggiunta!")
                 break
-                
+            for a in alliances:
+                aid = a.get('allianceID') or a.get('a') or a.get('id')
+                name = a.get('name') or a.get('n')
+                if aid: all_alliances[int(aid)] = name
             offset += 100
             time.sleep(random.uniform(0.4, 1.1))
         except: break
-        
-    print(f"✅ [ALLEANZE] Finito. Estratti {len(all_alliances)} nomi.")
+    print(f"✅ [ALLEANZE] Finito. Ho mappato {len(all_alliances)} alleanze nel server.")
     return all_alliances
 
 def process_tile_public(x, y, session, tmp_map):
@@ -228,49 +205,41 @@ def process_tile_public(x, y, session, tmp_map):
     try:
         time.sleep(random.uniform(0.05, 0.15))
         response = session.get(url, timeout=10)
-        if response.status_code != 200: return False
-        
-        testo_pulito = response.text.replace(" ", "").replace("\n", "")
-        if "callback_politicalmap({})" in testo_pulito:
-            return False
+        if response.status_code != 200: return 0
         
         start = response.text.find('(')
         end = response.text.rfind(')')
         
+        count = 0
         if start != -1 and end != -1:
             data = json.loads(response.text[start+1:end])
             if 'habitatArray' in data:
                 for h in data['habitatArray']:
-                    
-                    pid = int(h.get('playerid') or 0)
-                    aid = int(h.get('allianceid') or 0)
-                    pts = int(h.get('points') or 0)
-                    htype = int(h.get('habitattype') or 0)
-                    
+                    count += 1
+                    pid = int(h['playerid'])
                     key = f"{h['mapx']}_{h['mapy']}"
                     
                     if key in tmp_map:
                         tmp_map[key].update({
                             'p': pid,
-                            'a': aid,
+                            'a': int(h['allianceid']),
                             'n': h.get('name', ''),
-                            'pt': pts,
-                            't': htype,
+                            'pt': int(h['points']),
+                            't': int(h['habitattype']),
                             'd': int(time.time())
                         })
                     else:
                         tmp_map[key] = {
                             'p': pid, 'pn': "Sconosciuto",
-                            'a': aid, 'an': "",
+                            'a': int(h['allianceid']), 'an': "",
                             'n': h.get('name', ''),
                             'x': int(h['mapx']), 'y': int(h['mapy']),
-                            'pt': pts, 't': htype,
+                            'pt': int(h['points']), 't': int(h['habitattype']),
                             'd': int(time.time())
                         }
-                return True
-    except Exception as e: 
-        print(f"   ⚠️ ERRORE PYTHON al quadrante {x}_{y}: {e}")
-    return False
+        return count
+    except: pass
+    return 0
 
 def extract_hidden_ids(node, known_map, found_set):
     if isinstance(node, dict):
@@ -316,6 +285,9 @@ def enrich_with_habitat_ids(client, temp_map, castelli_senza_id):
         'Content-Type': 'application/x-www-form-urlencoded',
         'XYClient-Client': 'lk_b_3',
         'XYClient-Loginclient': 'Chrome',
+        'XYClient-Loginclientversion': '10.8.0',
+        'XYClient-Platform': 'browser',
+        'XYClient-Capabilities': 'base,fortress,city,parti%D0%B0l%CE%A4ran%D1%95its,starterpack,requestInformation,partialUpdate,regions,metropolis',
         'Origin': 'https://www.lordsandknights.com',
         'Referer': 'https://www.lordsandknights.com/'
     })
@@ -345,7 +317,8 @@ def enrich_with_habitat_ids(client, temp_map, castelli_senza_id):
                 habitat_trovati += len(found_in_this_request)
                 print(f"      ✔️ Estratti {len(found_in_this_request)} chiavi primarie!")
         except Exception: 
-            pass
+            print(f"      ❌ Errore durante l'ispezione del quadrante {tx}_{ty}.")
+            continue
 
     print(f"🎯 [ID SEGRETI] Finito! Aggiunti {habitat_trovati} nuovi HabitatID nel database.")
 
@@ -420,6 +393,7 @@ def run_history_check(old_db_list, new_db_list, history_file):
     for pid, new_data in current_known.items():
         if pid in last_known:
             old_data = last_known[pid]
+            
             old_name = old_data['n']
             new_name = new_data['n']
             if old_name and old_name != "Sconosciuto" and new_name and new_name != "Sconosciuto" and old_name != new_name:
@@ -430,10 +404,15 @@ def run_history_check(old_db_list, new_db_list, history_file):
             new_ally = new_data['a']
             if old_ally != new_ally:
                 new_events.append({
-                    "type": "alliance", "p": pid, "old": old_ally, "new": new_ally, 
-                    "old_name": old_data['an'], "new_name": new_data['an'], "d": now
+                    "type": "alliance", 
+                    "p": pid, 
+                    "old": old_ally, 
+                    "new": new_ally, 
+                    "old_name": old_data['an'], 
+                    "new_name": new_data['an'], 
+                    "d": now
                 })
-                print(f"   📜 [EVENTO] Il Giocatore {pid} ha cambiato alleanza da {old_ally} a {new_ally}")
+                print(f"   📜 [EVENTO] Il Giocatore {pid} ha cambiato alleanza da {old_ally} ({old_data['an']}) a {new_ally} ({new_data['an']})")
 
     if new_events:
         print(f"📥 [CRONOLOGIA] Salvo {len(new_events)} nuovi eventi nel file storico.")
@@ -450,24 +429,16 @@ def run_unified_scanner():
     print("=====================================================")
     
     if not os.path.exists(FILE_DATABASE):
+        print(f"📄 Il file '{FILE_DATABASE}' non esiste. Lo creo nuovo di zecca.")
         with open(FILE_DATABASE, 'w') as f: json.dump([], f)
         
     temp_map = {}
-    old_known_players = {}
-    old_known_alliances = {}
-    
     with open(FILE_DATABASE, 'r') as f:
         print(f"📥 Sto caricando il vecchio database '{FILE_DATABASE}' nella memoria temporanea...")
-        for entry in json.load(f): 
-            temp_map[f"{entry['x']}_{entry['y']}"] = entry
-            # Salviamo chi conoscevamo già per il controllo Smart Scan
-            if entry.get('p') and entry.get('pn') and entry.get('pn') != "Sconosciuto":
-                old_known_players[entry['p']] = entry['pn']
-            if entry.get('a') and entry.get('an'):
-                old_known_alliances[entry['a']] = entry['an']
-                
+        for entry in json.load(f): temp_map[f"{entry['x']}_{entry['y']}"] = entry
+        
     old_db_list = copy.deepcopy(list(temp_map.values()))
-    print(f"📸 Ho scattato la 'fotografia' del database vecchio ({len(temp_map)} castelli noti).")
+    print(f"📸 Ho scattato la 'fotografia' del database vecchio ({len(temp_map)} castelli noti) per il controllo storico.")
 
     print("\n=====================================================")
     print("🌍 FASE 2: SCANSIONE MAPPA PUBBLICA (Modo Stealth)")
@@ -489,7 +460,7 @@ def run_unified_scanner():
         process_tile_public(tx, ty, session, temp_map)
     print("✅ Punti caldi aggiornati.")
 
-    centerX, centerY = 512, 512
+    centerX, centerY = 256, 256
     if temp_map:
         vals = list(temp_map.values())
         if vals:
@@ -518,11 +489,16 @@ def run_unified_scanner():
         
         for px, py in punti:
             chiave_quadrante = f"{px}_{py}"
+            
+            # SE IL QUADRANTE È GIÀ NEI PUNTI CALDI (SCANSIONATI PRIMA), LO SALTIAMO
             if chiave_quadrante in punti_caldi:
                 trovato = True
             else:
-                if process_tile_public(px, py, session, temp_map): 
+                # SE È UN QUADRANTE NUOVO, LO INTERROGHIAMO
+                num_castelli = process_tile_public(px, py, session, temp_map)
+                if num_castelli > 0: 
                     trovato = True
+                    print(f"   ✨ Trovati {num_castelli} castelli nel quadrante {px}_{py}!")
                 punti_caldi[chiave_quadrante] = (px, py)
         
         if trovato: 
@@ -530,62 +506,39 @@ def run_unified_scanner():
             vuoti = 0
         else: 
             vuoti += 1
-            print(f"   🏜️ Nessun castello qui. Giri a vuoto consecutivi: {vuoti}/3")
+            print(f"   🏜️ Nessun castello qui. Giri a vuoto consecutivi: {vuoti}/5")
             
-        if vuoti >=3: 
-            print(f"🛑 Mi fermo: Ho scansionato 3 anelli vuoti, la mappa è sicuramente finita.")
+        if vuoti >= 5: 
+            print(f"🛑 Mi fermo: Ho superato mari e montagne per 5 anelli senza trovare nulla. Sono al bordo della mappa.")
             break
 
-    # ANALISI SMART SCAN
-    missing_p = set()
-    missing_a = set()
-    for entry in temp_map.values():
-        p = entry.get('p', 0)
-        a = entry.get('a', 0)
-        if p != 0 and p not in old_known_players: missing_p.add(p)
-        if a != 0 and a not in old_known_alliances: missing_a.add(a)
-
-    castelli_senza_id = {k: v for k, v in temp_map.items() if 'id_habitat' not in v}
-    is_full_scan = (len(old_db_list) == 0)
-
-    # SE NON CI SONO NOVITÀ, SALTIAMO IL LOGIN E IL DOWNLOAD DELLE CLASSIFICHE!
-    if not is_full_scan and not missing_p and not missing_a and not castelli_senza_id:
-        print("\n⚡ NESSUN NUOVO GIOCATORE O CASTELLO RILEVATO.")
-        print("⏩ Salto completamente la Fase di Login e le Classifiche per risparmiare tempo!")
-        temp_map = enrich_db_with_names(temp_map, old_known_players, old_known_alliances)
-        
+    print("\n=====================================================")
+    print("🔐 FASE 3: ACCESSO GIOCO E RICERCA DATI SEGRETI")
+    print("=====================================================")
+    EMAIL = os.getenv("LK_EMAIL")
+    PASSWORD = os.getenv("LK_PASSWORD")
+    
+    client = None
+    if EMAIL and PASSWORD:
+        client = RePanzaClient.auto_login(EMAIL, PASSWORD)
     else:
-        print("\n=====================================================")
-        print("🔐 FASE 3: ACCESSO GIOCO E RICERCA DATI SEGRETI")
-        print("=====================================================")
-        EMAIL = os.getenv("LK_EMAIL")
-        PASSWORD = os.getenv("LK_PASSWORD")
+        print("⚠️ LK_EMAIL o LK_PASSWORD mancanti nei Secrets di GitHub. Salto il login.")
+    
+    if client:
+        player_map = fetch_ranking(client)
+        alliance_map = fetch_alliance_ranking(client)
         
-        client = None
-        if EMAIL and PASSWORD:
-            client = RePanzaClient.auto_login(EMAIL, PASSWORD)
-        else:
-            print("⚠️ LK_EMAIL o LK_PASSWORD mancanti nei Secrets di GitHub. Salto il login.")
+        temp_map = enrich_db_with_names(temp_map, player_map, alliance_map)
         
-        if client:
-            p_arg = "ALL" if is_full_scan else missing_p
-            a_arg = "ALL" if is_full_scan else missing_a
-            
-            new_players = fetch_ranking(client, p_arg)
-            new_alliances = fetch_alliance_ranking(client, a_arg)
-            
-            # Uniamo i vecchi nomi noti con i nuovi appena pescati
-            combined_players = {**old_known_players, **new_players}
-            combined_alliances = {**old_known_alliances, **new_alliances}
-            
-            temp_map = enrich_db_with_names(temp_map, combined_players, combined_alliances)
-            
-            if castelli_senza_id:
-                print(f"\n⚠️ Ho rilevato {len(castelli_senza_id)} nuovi castelli a cui manca la chiave primaria.")
-                enrich_with_habitat_ids(client, temp_map, castelli_senza_id)
+        castelli_senza_id = {k: v for k, v in temp_map.items() if 'id_habitat' not in v}
+        if not castelli_senza_id:
+            print("\n⚡ Nessun nuovo castello rilevato. Non c'è bisogno di scaricare nuove chiavi primarie HabitatID.")
         else:
-            print("❌ Login non riuscito. Non posso né scaricare i nomi, né cercare i nuovi ID Habitat.")
-            send_telegram_alert(WORLD_NAME)
+            print(f"\n⚠️ Ho rilevato {len(castelli_senza_id)} nuovi castelli a cui manca la chiave primaria.")
+            enrich_with_habitat_ids(client, temp_map, castelli_senza_id)
+    else:
+        print("❌ Login non riuscito. Non posso né scaricare i nomi, né cercare i nuovi ID Habitat.")
+        send_telegram_alert(WORLD_NAME)
 
     print("\n=====================================================")
     print("💾 FASE 4: ELABORAZIONI FINALI E SALVATAGGIO")
