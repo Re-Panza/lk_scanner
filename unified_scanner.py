@@ -335,7 +335,6 @@ def extract_hidden_ids(node, known_map, found_set):
             extract_hidden_ids(v, known_map, found_set)
             
     elif isinstance(node, list):
-        # --- MOTORE A MEMORIA SEQUENZIALE PER DIZIONARI FRAMMENTATI ---
         last_hx, last_hy = None, None
         for item in node:
             if isinstance(item, dict):
@@ -364,7 +363,6 @@ def enrich_with_habitat_ids(client, temp_map, castelli_senza_id):
     session = requests.Session()
     for cookie in client.cookies: session.cookies.set(cookie['name'], cookie['value'])
     
-    # --- SCUDO ANTIBAN (RISOLVE L'ERRORE 403) ---
     session.headers.update({
         'User-Agent': client.user_agent,
         'Accept': 'application/x-bplist',
@@ -455,6 +453,8 @@ def run_history_check(old_db_list, new_db_list, history_file):
     print("\n🕰️ [CRONOLOGIA] Verifico chi ha cambiato bandiera o nome...")
     
     history = {}
+    needs_saving = False  # --- FIX: Flag per capire se dobbiamo forzare il salvataggio ---
+    
     if os.path.exists(history_file):
         try:
             with open(history_file, 'r', encoding='utf-8') as f: 
@@ -467,6 +467,7 @@ def run_history_check(old_db_list, new_db_list, history_file):
                         pid = str(ev.get('p'))
                         if pid not in history: history[pid] = []
                         history[pid].append(ev)
+                    needs_saving = True # Abbiamo fatto la conversione, DOBBIAMO salvare!
         except: pass
 
     last_known = {}
@@ -535,9 +536,15 @@ def run_history_check(old_db_list, new_db_list, history_file):
                     history[str_pid] = history[str_pid][-50:]
                 
                 new_events_count += 1
+                needs_saving = True
 
-    if new_events_count > 0:
-        print(f"📥 [CRONOLOGIA] Salvo {new_events_count} nuovi eventi nel file storico.")
+    # --- FIX FORZATURA SALVATAGGIO ---
+    if needs_saving:
+        if new_events_count > 0:
+            print(f"📥 [CRONOLOGIA] Salvo {new_events_count} nuovi eventi nel file storico.")
+        else:
+            print("💾 [CRONOLOGIA] Salvo la conversione del file storico (nessun nuovo evento aggiunto questa volta).")
+            
         with open(history_file, 'w', encoding='utf-8') as f: 
             json.dump(history, f, indent=2)
     else:
@@ -560,13 +567,12 @@ def run_unified_scanner():
         print(f"📥 Sto caricando il vecchio database '{FILE_DATABASE}' nella memoria temporanea e pulendo eventuali errori...")
         for entry in json.load(f): 
             
-            # --- ANTIVIRUS: PULIZIA ERRORI "Origin" O TESTI STRANI ---
+            # --- ANTIVIRUS ID ---
             if 'id_habitat' in entry:
                 if not str(entry['id_habitat']).isdigit():
                     del entry['id_habitat'] 
                 else:
                     entry['id_habitat'] = int(entry['id_habitat'])
-            # ---------------------------------------------------------
 
             temp_map[f"{entry['x']}_{entry['y']}"] = entry
             
