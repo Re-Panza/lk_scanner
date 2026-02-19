@@ -303,50 +303,50 @@ def process_tile_public(x, y, session, tmp_map):
 
 def extract_hidden_ids(node, known_map, found_set):
     if isinstance(node, dict):
-        # Controllo classico
         hx = node.get('x') or node.get('mapX') or node.get('mapx')
         hy = node.get('y') or node.get('mapY') or node.get('mapy')
         
         if hx is not None and hy is not None:
-            hid = node.get('id') or node.get('habitatID') or node.get('primaryKey')
-            if hid and str(hid).isdigit():
-                key = f"{int(hx)}_{int(hy)}"
-                if key in known_map:
-                    known_map[key]['id_habitat'] = int(hid)
-                    found_set.add(key)
+            try:
+                hid = node.get('id') or node.get('habitatID') or node.get('primaryKey')
+                if hid and str(hid).isdigit():
+                    key = f"{int(hx)}_{int(hy)}"
+                    if key in known_map:
+                        known_map[key]['id_habitat'] = int(hid)
+                        found_set.add(key)
+            except: pass
         
-        # Controllo nidificato con fallback
         for k, v in node.items():
             if isinstance(v, dict):
                 sub_hx = v.get('x') or v.get('mapX') or v.get('mapx')
                 sub_hy = v.get('y') or v.get('mapY') or v.get('mapy')
                 if sub_hx is not None and sub_hy is not None:
-                    sub_hid = v.get('id') or v.get('primaryKey')
-                    if not sub_hid or not str(sub_hid).isdigit():
-                        sub_hid = k # Fallback intelligente
-                    if sub_hid and str(sub_hid).isdigit():
-                        key = f"{int(sub_hx)}_{int(sub_hy)}"
-                        if key in known_map:
-                            known_map[key]['id_habitat'] = int(sub_hid)
-                            found_set.add(key)
+                    try:
+                        sub_hid = v.get('id') or v.get('primaryKey')
+                        if not sub_hid or not str(sub_hid).isdigit():
+                            sub_hid = k 
+                        
+                        if sub_hid and str(sub_hid).isdigit(): 
+                            key = f"{int(sub_hx)}_{int(sub_hy)}"
+                            if key in known_map:
+                                known_map[key]['id_habitat'] = int(sub_hid)
+                                found_set.add(key)
+                    except: pass
             extract_hidden_ids(v, known_map, found_set)
             
     elif isinstance(node, list):
-        # --- NUOVO MOTORE: MEMORIA SEQUENZIALE PER I DIZIONARI SPEZZATI ---
+        # --- MOTORE A MEMORIA SEQUENZIALE PER DIZIONARI FRAMMENTATI ---
         last_hx, last_hy = None, None
         for item in node:
             if isinstance(item, dict):
                 hx = item.get('x') or item.get('mapX') or item.get('mapx')
                 hy = item.get('y') or item.get('mapY') or item.get('mapy')
                 
-                # Se trova coordinate, se le ricorda
                 if hx is not None and hy is not None:
                     last_hx, last_hy = hx, hy
                 
-                # Se trova un ID valido
                 hid = item.get('id') or item.get('habitatID') or item.get('primaryKey')
                 if hid and str(hid).isdigit():
-                    # Abbina l'ID alle coordinate appena trovate (o passate poco prima)
                     use_hx = hx if hx is not None else last_hx
                     use_hy = hy if hy is not None else last_hy
                     
@@ -356,7 +356,6 @@ def extract_hidden_ids(node, known_map, found_set):
                             known_map[key]['id_habitat'] = int(hid)
                             found_set.add(key)
         
-        # Continua la scansione in profondità
         for item in node:
             extract_hidden_ids(item, known_map, found_set)
 
@@ -365,12 +364,16 @@ def enrich_with_habitat_ids(client, temp_map, castelli_senza_id):
     session = requests.Session()
     for cookie in client.cookies: session.cookies.set(cookie['name'], cookie['value'])
     
+    # --- SCUDO ANTIBAN (RISOLVE L'ERRORE 403) ---
     session.headers.update({
         'User-Agent': client.user_agent,
         'Accept': 'application/x-bplist',
         'Content-Type': 'application/x-www-form-urlencoded',
         'XYClient-Client': 'lk_b_3',
         'XYClient-Loginclient': 'Chrome',
+        'XYClient-Loginclientversion': '10.8.0',
+        'XYClient-Platform': 'browser',
+        'XYClient-Capabilities': 'base,fortress,city,parti%D0%B0l%CE%A4ran%D1%95its,starterpack,requestInformation,partialUpdate,regions,metropolis',
         'Origin': 'https://www.lordsandknights.com',
         'Referer': 'https://www.lordsandknights.com/'
     })
