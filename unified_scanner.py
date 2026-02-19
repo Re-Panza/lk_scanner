@@ -12,13 +12,15 @@ from playwright.sync_api import sync_playwright
 # FORZA PYTHON A SCRIVERE I LOG IN TEMPO REALE SENZA ATTENDERE LA FINE DELLO SCRIPT
 print = functools.partial(print, flush=True)
 
-# --- CONFIGURAZIONE ---
+# =======================================================
+# --- CONFIGURAZIONE MONDO 327 ---
 SERVER_ID = "LKWorldServer-RE-IT-6"
 WORLD_ID = "327"
 WORLD_NAME = "Italia VI" 
 BACKEND_URL = "https://backend3.lordsandknights.com"
 FILE_DATABASE = "database_mondo_327.json"
 FILE_HISTORY = "cronologia_327.json"
+# =======================================================
 
 def send_telegram_alert(world_name):
     token = os.getenv("TELEGRAM_TOKEN")
@@ -45,7 +47,6 @@ class RePanzaClient:
     def auto_login(email, password):
         print("\n🔑 [LOGIN] Inizio procedura di Login Sicuro con Playwright...")
         
-        # Inizio del ciclo dei 3 tentativi
         for tentativo in range(1, 4):
             print(f"   🔄 [TENTATIVO {tentativo}/3] Avvio browser Chrome invisibile...")
             with sync_playwright() as p:
@@ -60,7 +61,7 @@ class RePanzaClient:
                 )
                 page = context.new_page()
                 
-                popup_gestito = False # Ci serve per capire se il while è stato interrotto apposta
+                popup_gestito = False
                 
                 try:
                     print("   [LOGIN] Mi collego alla homepage di Lords & Knights...")
@@ -86,7 +87,6 @@ class RePanzaClient:
                     start_time = time.time()
                     while time.time() - start_time < 60:
                         
-                        # Blocco Logica Popup 30 Secondi
                         if selector_ok.is_visible(): 
                             print("   ⚠️ [LOGIN] Popup OK trovato! Lo premo e attendo 30 secondi esatti...")
                             try: 
@@ -95,7 +95,6 @@ class RePanzaClient:
                                 popup_gestito = True
                             except: pass
                             
-                            # Allo scoccare dei 30 secondi verifica se il server ha risposto
                             cookies = context.cookies()
                             if any(c['name'] == 'sessionID' for c in cookies):
                                 print(f"✅ [LOGIN] Entrato dopo i 30 secondi di attesa! Sessione rubata al tentativo {tentativo}.")
@@ -104,8 +103,8 @@ class RePanzaClient:
                                 return RePanzaClient(final_cookies, ua)
                             else:
                                 print(f"   ❌ [LOGIN] Passati i 30 secondi, il pacchetto sessionID non c'è. Interrompo il tentativo {tentativo}.")
-                                break # Rompe il ciclo e passa alla fine per avviare il prossimo tentativo
-                        
+                                break 
+
                         if selector_mondo.is_visible():
                             try: 
                                 print(f"   [LOGIN] Tasto del mondo trovato! Entro in {WORLD_NAME}...")
@@ -122,11 +121,10 @@ class RePanzaClient:
                         time.sleep(random.uniform(0.8, 1.3))
                     
                     if popup_gestito:
-                        # Ha fatto break per colpa del popup, non stampa il messaggio di timeout
                         pass
                     else:
                         print(f"🛑 [LOGIN] Timeout: È passato 1 minuto e il gioco non mi ha fatto entrare al tentativo {tentativo}.")
-                        
+                    
                     try: page.screenshot(path=f"debug_login_error_t{tentativo}.png", full_page=True)
                     except: pass
 
@@ -135,13 +133,11 @@ class RePanzaClient:
                     try: page.screenshot(path=f"debug_login_error_t{tentativo}.png", full_page=True)
                     except: pass
                 
-                # Chiude tutto e aspetta prima di riprovare
                 browser.close()
                 if tentativo < 3:
                     print("   ⏳ Riposo qualche secondo prima del prossimo tentativo per non insospettire i server...")
                     time.sleep(random.uniform(3.0, 5.0))
 
-        # Se arriva qui, ha esaurito tutte e 3 le vite
         print("❌ [LOGIN] TUTTI I 3 TENTATIVI SONO FALLITI. ABBANDONO.")
         return None
 
@@ -186,11 +182,9 @@ def fetch_ranking(client, missing_ids="ALL"):
                 name = p.get('nick') or p.get('n') or p.get('name') or ""
                 if pid: 
                     all_players[pid] = name
-                    # Rimuove il giocatore dalla lista dei ricercati se lo ha trovato
                     if not full_scan and pid in target_set:
                         target_set.remove(pid)
                         
-            # Se la lista dei ricercati si svuota, ferma subito il ciclo per salvare tempo!
             if not full_scan and len(target_set) == 0:
                 print(f"   🎯 BINGO! Trovati tutti i giocatori cercati. Interrompo la scansione in anticipo.")
                 break
@@ -262,20 +256,21 @@ def process_tile_public(x, y, session, tmp_map):
     try:
         time.sleep(random.uniform(0.05, 0.15))
         response = session.get(url, timeout=10)
-        if response.status_code != 200: return False
+        if response.status_code != 200: return 0
         
         testo_pulito = response.text.replace(" ", "").replace("\n", "")
         if "callback_politicalmap({})" in testo_pulito:
-            return False
+            return 0
         
         start = response.text.find('(')
         end = response.text.rfind(')')
         
+        count = 0
         if start != -1 and end != -1:
             data = json.loads(response.text[start+1:end])
             if 'habitatArray' in data:
                 for h in data['habitatArray']:
-                    
+                    count += 1
                     pid = int(h.get('playerid') or 0)
                     aid = int(h.get('allianceid') or 0)
                     pts = int(h.get('points') or 0)
@@ -301,10 +296,10 @@ def process_tile_public(x, y, session, tmp_map):
                             'pt': pts, 't': htype,
                             'd': int(time.time())
                         }
-                return True
+        return count
     except Exception as e: 
         print(f"   ⚠️ ERRORE PYTHON al quadrante {x}_{y}: {e}")
-    return False
+    return 0
 
 def extract_hidden_ids(node, known_map, found_set):
     if isinstance(node, dict):
@@ -427,11 +422,22 @@ def run_inactivity_check(data):
 
 def run_history_check(old_db_list, new_db_list, history_file):
     print("\n🕰️ [CRONOLOGIA] Verifico chi ha cambiato bandiera o nome...")
-    history = []
+    
+    # --- NUOVA STRUTTURA: STORICO A DIZIONARIO ---
+    history = {}
     if os.path.exists(history_file):
         try:
             with open(history_file, 'r', encoding='utf-8') as f: 
-                history = json.load(f)
+                loaded_data = json.load(f)
+                if isinstance(loaded_data, dict):
+                    history = loaded_data
+                elif isinstance(loaded_data, list):
+                    # MIGRAZIONE AUTOMATICA: Raggruppa i vecchi dati sparsi per PlayerID
+                    print("   🔄 [MIGRAZIONE] Rilevato vecchio formato lista. Converto in cartelle anagrafiche...")
+                    for ev in loaded_data:
+                        pid = str(ev.get('p'))
+                        if pid not in history: history[pid] = []
+                        history[pid].append(ev)
         except: pass
 
     last_known = {}
@@ -449,31 +455,64 @@ def run_history_check(old_db_list, new_db_list, history_file):
                 current_known[pid] = {'n': h.get('pn', 'Sconosciuto'), 'a': h.get('a', 0), 'an': h.get('an', '')}
 
     now = int(time.time())
-    new_events = []
+    new_events_count = 0
 
     for pid, new_data in current_known.items():
         if pid in last_known:
             old_data = last_known[pid]
+            
             old_name = old_data['n']
             new_name = new_data['n']
-            if old_name and old_name != "Sconosciuto" and new_name and new_name != "Sconosciuto" and old_name != new_name:
-                new_events.append({"type": "name", "p": pid, "old": old_name, "new": new_name, "d": now})
-                print(f"   📜 [EVENTO] Il Giocatore {pid} ha cambiato nome da '{old_name}' a '{new_name}'")
+            name_changed = (old_name and old_name != "Sconosciuto" and new_name and new_name != "Sconosciuto" and old_name != new_name)
             
             old_ally = old_data['a']
             new_ally = new_data['a']
-            if old_ally != new_ally:
-                new_events.append({
+            ally_changed = (old_ally != new_ally)
+
+            event_to_add = None
+
+            if name_changed and ally_changed:
+                event_to_add = {
+                    "type": "name_and_alliance", 
+                    "p": pid, 
+                    "old_name": old_name, 
+                    "new_name": new_name, 
+                    "old_ally": old_ally, 
+                    "new_ally": new_ally, 
+                    "old_ally_name": old_data['an'], 
+                    "new_ally_name": new_data['an'], 
+                    "d": now
+                }
+                print(f"   📜 [EVENTO DOPPIO] Il Giocatore {pid} ha cambiato NOME (da '{old_name}' a '{new_name}') e ALLEANZA (da {old_ally} a {new_ally})")
+            
+            elif name_changed:
+                event_to_add = {"type": "name", "p": pid, "old": old_name, "new": new_name, "d": now}
+                print(f"   📜 [EVENTO] Il Giocatore {pid} ha cambiato nome da '{old_name}' a '{new_name}'")
+            
+            elif ally_changed:
+                event_to_add = {
                     "type": "alliance", "p": pid, "old": old_ally, "new": new_ally, 
                     "old_name": old_data['an'], "new_name": new_data['an'], "d": now
-                })
+                }
                 print(f"   📜 [EVENTO] Il Giocatore {pid} ha cambiato alleanza da {old_ally} a {new_ally}")
+            
+            # SE C'È UN EVENTO, LO AGGIUNGE NELLA CARTELLA PERSONALE DEL GIOCATORE
+            if event_to_add:
+                str_pid = str(pid)
+                if str_pid not in history:
+                    history[str_pid] = []
+                history[str_pid].append(event_to_add)
+                
+                # Tiene memoria solo degli ultimi 50 movimenti per giocatore
+                if len(history[str_pid]) > 50:
+                    history[str_pid] = history[str_pid][-50:]
+                
+                new_events_count += 1
 
-    if new_events:
-        print(f"📥 [CRONOLOGIA] Salvo {len(new_events)} nuovi eventi nel file storico.")
-        history.extend(new_events)
+    if new_events_count > 0:
+        print(f"📥 [CRONOLOGIA] Salvo {new_events_count} nuovi eventi nel file storico.")
         with open(history_file, 'w', encoding='utf-8') as f: 
-            json.dump(history[-5000:], f, indent=2)
+            json.dump(history, f, indent=2)
     else:
         print("💤 [CRONOLOGIA] Nessun cambiamento rilevato tra i giocatori.")
 
@@ -494,7 +533,6 @@ def run_unified_scanner():
         print(f"📥 Sto caricando il vecchio database '{FILE_DATABASE}' nella memoria temporanea...")
         for entry in json.load(f): 
             temp_map[f"{entry['x']}_{entry['y']}"] = entry
-            # Salviamo chi conoscevamo già per il controllo Smart Scan
             if entry.get('p') and entry.get('pn') and entry.get('pn') != "Sconosciuto":
                 old_known_players[entry['p']] = entry['pn']
             if entry.get('a') and entry.get('an'):
@@ -514,13 +552,20 @@ def run_unified_scanner():
     })
     
     punti_caldi = {}
+    cache_conteggi_tile = {}
+    
     for entry in temp_map.values():
         tx, ty = entry['x'] // 32, entry['y'] // 32
-        punti_caldi[f"{tx}_{ty}"] = (tx, ty)
+        chiave_tile = f"{tx}_{ty}"
+        punti_caldi[chiave_tile] = (tx, ty)
+        cache_conteggi_tile[chiave_tile] = cache_conteggi_tile.get(chiave_tile, 0) + 1
 
     print(f"🔥 Prima passata: Aggiorno al volo {len(punti_caldi)} quadranti caldi già conosciuti...")
     for tx, ty in punti_caldi.values():
-        process_tile_public(tx, ty, session, temp_map)
+        num = process_tile_public(tx, ty, session, temp_map)
+        cache_conteggi_tile[f"{tx}_{ty}"] = num 
+        if num > 0:
+            print(f"   📍 [AGGIORNAMENTO] Quadrante {tx}_{ty}: {num} castelli presenti.")
     print("✅ Punti caldi aggiornati.")
 
     centerX, centerY = 512, 512
@@ -534,6 +579,7 @@ def run_unified_scanner():
     vuoti = 0
     for r in range(1, 150):
         trovato = False
+        castelli_giro = 0
         xMin, xMax = centerX - r, centerX + r
         yMin, yMax = centerY - r, centerY + r
         punti = []
@@ -552,25 +598,33 @@ def run_unified_scanner():
         
         for px, py in punti:
             chiave_quadrante = f"{px}_{py}"
+            
             if chiave_quadrante in punti_caldi:
+                num = cache_conteggi_tile.get(chiave_quadrante, 0)
                 trovato = True
+                castelli_giro += num
+                if num > 0:
+                    print(f"   💾 [MEMORIA] Quadrante {px}_{py}: Ci sono {num} castelli (Già noti).")
             else:
-                if process_tile_public(px, py, session, temp_map): 
+                num = process_tile_public(px, py, session, temp_map)
+                if num > 0: 
                     trovato = True
+                    print(f"   ✨ [NUOVO] Quadrante {px}_{py}: Trovati {num} castelli!")
+                    castelli_giro += num
                 punti_caldi[chiave_quadrante] = (px, py)
+                cache_conteggi_tile[chiave_quadrante] = num
         
         if trovato: 
-            print(f"   🏰 Trovata vita nell'Anello {r}! Azzero il contatore dei deserti.")
+            print(f"   🏰 Anello {r} completato! Totale castelli attivi in questa zona: {castelli_giro}. Azzero vuoti.")
             vuoti = 0
         else: 
             vuoti += 1
-            print(f"   🏜️ Nessun castello qui. Giri a vuoto consecutivi: {vuoti}/3")
+            print(f"   🏜️ Anello {r} deserto. Giri a vuoto consecutivi: {vuoti}/3")
             
         if vuoti >=3: 
             print(f"🛑 Mi fermo: Ho scansionato 3 anelli vuoti, la mappa è sicuramente finita.")
             break
 
-    # ANALISI SMART SCAN
     missing_p = set()
     missing_a = set()
     for entry in temp_map.values():
@@ -582,7 +636,6 @@ def run_unified_scanner():
     castelli_senza_id = {k: v for k, v in temp_map.items() if 'id_habitat' not in v}
     is_full_scan = (len(old_db_list) == 0)
 
-    # SE NON CI SONO NOVITÀ, SALTIAMO IL LOGIN E IL DOWNLOAD DELLE CLASSIFICHE!
     if not is_full_scan and not missing_p and not missing_a and not castelli_senza_id:
         print("\n⚡ NESSUN NUOVO GIOCATORE O CASTELLO RILEVATO.")
         print("⏩ Salto completamente la Fase di Login e le Classifiche per risparmiare tempo!")
@@ -608,7 +661,6 @@ def run_unified_scanner():
             new_players = fetch_ranking(client, p_arg)
             new_alliances = fetch_alliance_ranking(client, a_arg)
             
-            # Uniamo i vecchi nomi noti con i nuovi appena pescati
             combined_players = {**old_known_players, **new_players}
             combined_alliances = {**old_known_alliances, **new_alliances}
             
