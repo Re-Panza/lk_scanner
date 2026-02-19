@@ -430,30 +430,43 @@ def enrich_db_with_names(db, player_map, alliance_map):
 def run_inactivity_check(data):
     print("\n⏳ [INATTIVITÀ] Calcolo chi sta giocando e chi sta dormendo...")
     inattivi_trovati = 0
+    
     for key, h in data.items():
         if not h.get('p') or h['p'] == 0: continue
-        firma = f"{h.get('pn', 'Sconosciuto')}|{h.get('a', 0)}|{h['n']}|{h['pt']}"
+        
+        firma_attuale = f"{h.get('pn', 'Sconosciuto')}|{h.get('a', 0)}|{h['n']}|{h['pt']}"
         h['d'] = int(h['d'])
         
-        if 'u' not in h: h['u'] = h['d']; h['f'] = firma; continue
-        try: last = int(h['u'])
-        except: last = h['d']
+        if 'u' not in h:
+            h['u'] = h['d']
+            h['f'] = firma_attuale
+            h['i'] = False
+            continue
 
-        if h.get('f') != firma:
-            h['u'] = h['d']; h['f'] = firma; h['i'] = False
+        if h.get('f') != firma_attuale:
+            # RESET ATTIVITÀ: se la firma cambia, il player torna attivo e si aggiornano i timer
+            h['u'] = h['d']
+            h['f'] = firma_attuale
+            h['i'] = False
         else:
-            if (h['d'] - last) >= 86400: 
+            # SOGLIA: 24 ore (86400 secondi)
+            secondi_fermo = h['d'] - int(h['u'])
+            
+            if secondi_fermo >= 86400:
                 h['i'] = True
                 inattivi_trovati += 1
+            else:
+                # Forza lo stato attivo se il tempo non è ancora scaduto, ripulendo eventuali falsi incastrati
+                h['i'] = False
     
-    print(f"🛌 [INATTIVITÀ] Attualmente ci sono {inattivi_trovati} castelli inattivi da più di 24 ore.")
+    print(f"🛌 [INATTIVITÀ] Analisi completata: {inattivi_trovati} inattivi reali trovati da più di 24 ore.")
     return data
 
 def run_history_check(old_db_list, new_db_list, history_file):
     print("\n🕰️ [CRONOLOGIA] Verifico chi ha cambiato bandiera o nome...")
     
     history = {}
-    needs_saving = False  # --- FIX: Flag per capire se dobbiamo forzare il salvataggio ---
+    needs_saving = False 
     
     if os.path.exists(history_file):
         try:
@@ -462,12 +475,11 @@ def run_history_check(old_db_list, new_db_list, history_file):
                 if isinstance(loaded_data, dict):
                     history = loaded_data
                 elif isinstance(loaded_data, list):
-                    print("   🔄 [MIGRAZIONE] Rilevato vecchio formato lista. Converto in cartelle anagrafiche...")
                     for ev in loaded_data:
                         pid = str(ev.get('p'))
                         if pid not in history: history[pid] = []
                         history[pid].append(ev)
-                    needs_saving = True # Abbiamo fatto la conversione, DOBBIAMO salvare!
+                    needs_saving = True 
         except: pass
 
     last_known = {}
@@ -513,18 +525,15 @@ def run_history_check(old_db_list, new_db_list, history_file):
                     "new_ally_name": new_data['an'], 
                     "d": now
                 }
-                print(f"   📜 [EVENTO DOPPIO] Il Giocatore {pid} ha cambiato NOME (da '{old_name}' a '{new_name}') e ALLEANZA (da {old_ally} a {new_ally})")
             
             elif name_changed:
                 event_to_add = {"type": "name", "p": pid, "old": old_name, "new": new_name, "d": now}
-                print(f"   📜 [EVENTO] Il Giocatore {pid} ha cambiato nome da '{old_name}' a '{new_name}'")
             
             elif ally_changed:
                 event_to_add = {
                     "type": "alliance", "p": pid, "old": old_ally, "new": new_ally, 
                     "old_name": old_data['an'], "new_name": new_data['an'], "d": now
                 }
-                print(f"   📜 [EVENTO] Il Giocatore {pid} ha cambiato alleanza da {old_ally} a {new_ally}")
             
             if event_to_add:
                 str_pid = str(pid)
@@ -538,24 +547,12 @@ def run_history_check(old_db_list, new_db_list, history_file):
                 new_events_count += 1
                 needs_saving = True
 
-    # --- FIX FORZATURA SALVATAGGIO ---
     if needs_saving:
-        if new_events_count > 0:
-            print(f"📥 [CRONOLOGIA] Salvo {new_events_count} nuovi eventi nel file storico.")
-        else:
-            print("💾 [CRONOLOGIA] Salvo la conversione del file storico (nessun nuovo evento aggiunto questa volta).")
-            
         with open(history_file, 'w', encoding='utf-8') as f: 
             json.dump(history, f, indent=2)
-    else:
-        print("💤 [CRONOLOGIA] Nessun cambiamento rilevato tra i giocatori.")
 
 
 def run_unified_scanner():
-    print("=====================================================")
-    print("🚀 FASE 1: INIZIALIZZAZIONE E MEMORIA")
-    print("=====================================================")
-    
     if not os.path.exists(FILE_DATABASE):
         with open(FILE_DATABASE, 'w') as f: json.dump([], f)
         
@@ -564,29 +561,20 @@ def run_unified_scanner():
     old_known_alliances = {}
     
     with open(FILE_DATABASE, 'r') as f:
-        print(f"📥 Sto caricando il vecchio database '{FILE_DATABASE}' nella memoria temporanea e pulendo eventuali errori...")
         for entry in json.load(f): 
-            
-            # --- ANTIVIRUS ID ---
             if 'id_habitat' in entry:
                 if not str(entry['id_habitat']).isdigit():
                     del entry['id_habitat'] 
                 else:
                     entry['id_habitat'] = int(entry['id_habitat'])
-
             temp_map[f"{entry['x']}_{entry['y']}"] = entry
-            
             if entry.get('p') and entry.get('pn') and entry.get('pn') != "Sconosciuto":
                 old_known_players[entry['p']] = entry['pn']
             if entry.get('a') and entry.get('an'):
                 old_known_alliances[entry['a']] = entry['an']
                 
     old_db_list = copy.deepcopy(list(temp_map.values()))
-    print(f"📸 Ho scattato la 'fotografia' del database vecchio ({len(temp_map)} castelli noti).")
 
-    print("\n=====================================================")
-    print("🌍 FASE 2: SCANSIONE MAPPA PUBBLICA (Modo Stealth)")
-    print("=====================================================")
     session = requests.Session()
     session.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
@@ -595,21 +583,12 @@ def run_unified_scanner():
     })
     
     punti_caldi = {}
-    cache_conteggi_tile = {}
-    
     for entry in temp_map.values():
         tx, ty = entry['x'] // 32, entry['y'] // 32
-        chiave_tile = f"{tx}_{ty}"
-        punti_caldi[chiave_tile] = (tx, ty)
-        cache_conteggi_tile[chiave_tile] = cache_conteggi_tile.get(chiave_tile, 0) + 1
+        punti_caldi[f"{tx}_{ty}"] = (tx, ty)
 
-    print(f"🔥 Prima passata: Aggiorno al volo {len(punti_caldi)} quadranti caldi già conosciuti...")
     for tx, ty in punti_caldi.values():
-        num = process_tile_public(tx, ty, session, temp_map)
-        cache_conteggi_tile[f"{tx}_{ty}"] = num 
-        if num > 0:
-            print(f"   📍 [AGGIORNAMENTO] Quadrante {tx}_{ty}: {num} castelli presenti.")
-    print("✅ Punti caldi aggiornati.")
+        process_tile_public(tx, ty, session, temp_map)
 
     centerX, centerY = 512, 512
     if temp_map:
@@ -617,16 +596,13 @@ def run_unified_scanner():
         if vals:
             centerX = sum(e['x']//32 for e in vals) // len(vals)
             centerY = sum(e['y']//32 for e in vals) // len(vals)
-    print(f"🚁 Avvio espansione a spirale dal centro di massa: Quadrante ({centerX}, {centerY})")
 
     vuoti = 0
     for r in range(1, 150):
         trovato = False
-        castelli_giro = 0
         xMin, xMax = centerX - r, centerX + r
         yMin, yMax = centerY - r, centerY + r
         punti = []
-        
         for i in range(xMin, xMax + 1): 
             if 0 <= i <= 600:
                 if 0 <= yMin <= 600: punti.append((i, yMin))
@@ -637,36 +613,15 @@ def run_unified_scanner():
                 if 0 <= xMax <= 600: punti.append((xMax, j))
         
         punti = list(set(punti))
-        print(f"⭕ Anello {r}/150: Controllo {len(punti)} quadranti periferici...")
-        
         for px, py in punti:
-            chiave_quadrante = f"{px}_{py}"
-            
-            if chiave_quadrante in punti_caldi:
-                num = cache_conteggi_tile.get(chiave_quadrante, 0)
-                trovato = True
-                castelli_giro += num
-                if num > 0:
-                    print(f"   💾 [MEMORIA] Quadrante {px}_{py}: Ci sono {num} castelli (Già noti).")
-            else:
+            if f"{px}_{py}" not in punti_caldi:
                 num = process_tile_public(px, py, session, temp_map)
-                if num > 0: 
-                    trovato = True
-                    print(f"   ✨ [NUOVO] Quadrante {px}_{py}: Trovati {num} castelli!")
-                    castelli_giro += num
-                punti_caldi[chiave_quadrante] = (px, py)
-                cache_conteggi_tile[chiave_quadrante] = num
+                if num > 0: trovato = True
+                punti_caldi[f"{px}_{py}"] = (px, py)
         
-        if trovato: 
-            print(f"   🏰 Anello {r} completato! Totale castelli attivi in questa zona: {castelli_giro}. Azzero vuoti.")
-            vuoti = 0
-        else: 
-            vuoti += 1
-            print(f"   🏜️ Anello {r} deserto. Giri a vuoto consecutivi: {vuoti}/3")
-            
-        if vuoti >=3: 
-            print(f"🛑 Mi fermo: Ho scansionato 3 anelli vuoti, la mappa è sicuramente finita.")
-            break
+        if trovato: vuoti = 0
+        else: vuoti += 1
+        if vuoti >=3: break
 
     missing_p = set()
     missing_a = set()
@@ -680,60 +635,32 @@ def run_unified_scanner():
     is_full_scan = (len(old_db_list) == 0)
 
     if not is_full_scan and not missing_p and not missing_a and not castelli_senza_id:
-        print("\n⚡ NESSUN NUOVO GIOCATORE O CASTELLO RILEVATO.")
-        print("⏩ Salto completamente la Fase di Login e le Classifiche per risparmiare tempo!")
         temp_map = enrich_db_with_names(temp_map, old_known_players, old_known_alliances)
-        
     else:
-        print("\n=====================================================")
-        print("🔐 FASE 3: ACCESSO GIOCO E RICERCA DATI SEGRETI")
-        print("=====================================================")
         EMAIL = os.getenv("LK_EMAIL")
         PASSWORD = os.getenv("LK_PASSWORD")
-        
-        client = None
-        if EMAIL and PASSWORD:
-            client = RePanzaClient.auto_login(EMAIL, PASSWORD)
-        else:
-            print("⚠️ LK_EMAIL o LK_PASSWORD mancanti nei Secrets di GitHub. Salto il login.")
+        client = RePanzaClient.auto_login(EMAIL, PASSWORD) if EMAIL and PASSWORD else None
         
         if client:
             p_arg = "ALL" if is_full_scan else missing_p
             a_arg = "ALL" if is_full_scan else missing_a
-            
             new_players = fetch_ranking(client, p_arg)
             new_alliances = fetch_alliance_ranking(client, a_arg)
-            
             combined_players = {**old_known_players, **new_players}
             combined_alliances = {**old_known_alliances, **new_alliances}
-            
             temp_map = enrich_db_with_names(temp_map, combined_players, combined_alliances)
-            
             if castelli_senza_id:
-                print(f"\n⚠️ Ho rilevato {len(castelli_senza_id)} nuovi castelli a cui manca la chiave primaria.")
                 enrich_with_habitat_ids(client, temp_map, castelli_senza_id)
         else:
-            print("❌ Login non riuscito. Non posso né scaricare i nomi, né cercare i nuovi ID Habitat.")
             send_telegram_alert(WORLD_NAME)
 
-    print("\n=====================================================")
-    print("💾 FASE 4: ELABORAZIONI FINALI E SALVATAGGIO")
-    print("=====================================================")
-    
     temp_map = run_inactivity_check(temp_map)
     new_db_list = list(temp_map.values())
     run_history_check(old_db_list, new_db_list, FILE_HISTORY)
-    
-    print("🧹 Pulizia database: Elimino i castelli spariti dalla mappa da più di 3 giorni...")
     final_list = [v for v in temp_map.values() if v['d'] > (time.time() - 259200)]
     
-    print(f"📦 Compressione e scrittura nel file {FILE_DATABASE}...")
     with open(FILE_DATABASE, 'w', encoding='utf-8') as f:
         json.dump(final_list, f, indent=2, ensure_ascii=False)
-    
-    print("\n=====================================================")
-    print(f"✅ OPERAZIONE COMPLETATA! Database aggiornato e chiuso. ({len(final_list)} castelli in totale)")
-    print("=====================================================")
 
 if __name__ == "__main__":
     run_unified_scanner()
