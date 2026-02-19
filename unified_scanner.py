@@ -427,40 +427,58 @@ def enrich_db_with_names(db, player_map, alliance_map):
     print(f"♻️ [UNIONE DATI] Perfetto, i nomi di giocatori e alleanze sono stati applicati su {count_updated} castelli nel database.")
     return db
 
+
 def run_inactivity_check(data):
-    print("\n⏳ [INATTIVITÀ] Calcolo chi sta giocando e chi sta dormendo...")
-    inattivi_trovati = 0
+    print("\n⏳ [INATTIVITÀ] Calcolo chi sta giocando e chi sta dormendo (basato su TUTTI i possedimenti)...")
+    
+    # FASE 1: Trovo l'ultimo segno di vita globale per ogni giocatore
+    player_last_active = {}
     
     for key, h in data.items():
-        if not h.get('p') or h['p'] == 0: continue
+        p = h.get('p')
+        if not p or p == 0: continue
         
         firma_attuale = f"{h.get('pn', 'Sconosciuto')}|{h.get('a', 0)}|{h['n']}|{h['pt']}"
         h['d'] = int(h['d'])
         
-        if 'u' not in h:
-            h['u'] = h['d']
-            h['f'] = firma_attuale
-            h['i'] = False
-            continue
-
-        if h.get('f') != firma_attuale:
-            # RESET ATTIVITÀ: se la firma cambia, il player torna attivo e si aggiornano i timer
-            h['u'] = h['d']
-            h['f'] = firma_attuale
-            h['i'] = False
+        # Se la firma cambia (o è nuovo), consideriamo questo castello attivo "adesso"
+        if h.get('f') != firma_attuale or 'u' not in h:
+            ultimo_mov_castello = h['d']
         else:
-            # SOGLIA: 24 ore (86400 secondi)
-            secondi_fermo = h['d'] - int(h['u'])
+            ultimo_mov_castello = int(h['u'])
             
-            if secondi_fermo >= 86400:
-                h['i'] = True
-                inattivi_trovati += 1
-            else:
-                # Forza lo stato attivo se il tempo non è ancora scaduto, ripulendo eventuali falsi incastrati
-                h['i'] = False
-    
-    print(f"🛌 [INATTIVITÀ] Analisi completata: {inattivi_trovati} inattivi reali trovati da più di 24 ore.")
+        # Salvo il tempo più recente tra TUTTI i castelli del giocatore
+        if p not in player_last_active:
+            player_last_active[p] = ultimo_mov_castello
+        else:
+            if ultimo_mov_castello > player_last_active[p]:
+                player_last_active[p] = ultimo_mov_castello
+
+    # FASE 2: Assegno l'inattività basandomi sul timer globale del GIOCATORE
+    inattivi_trovati = 0
+    for key, h in data.items():
+        p = h.get('p')
+        if not p or p == 0: continue
+        
+        firma_attuale = f"{h.get('pn', 'Sconosciuto')}|{h.get('a', 0)}|{h['n']}|{h['pt']}"
+        
+        # Aggiorno i log storici (u/f) del singolo castello come al solito
+        if h.get('f') != firma_attuale or 'u' not in h:
+            h['u'] = h['d']
+            h['f'] = firma_attuale
+        
+        # IL CAMBIAMENTO CRUCIALE: Calcolo il tempo basandomi sull'intero account del player
+        secondi_fermo_giocatore = h['d'] - player_last_active[p]
+        
+        if secondi_fermo_giocatore >= 86400: # 24 ore
+            h['i'] = True
+            inattivi_trovati += 1
+        else:
+            h['i'] = False
+
+    print(f"🛌 [INATTIVITÀ] Analisi completata: {inattivi_trovati} castelli appartengono a giocatori inattivi da più di 24 ore.")
     return data
+
 
 def run_history_check(old_db_list, new_db_list, history_file):
     print("\n🕰️ [CRONOLOGIA] Verifico chi ha cambiato bandiera o nome...")
@@ -551,7 +569,6 @@ def run_history_check(old_db_list, new_db_list, history_file):
                 new_events_count += 1
                 needs_saving = True
 
-    # --- FIX FORZATURA SALVATAGGIO ---
     if needs_saving:
         if new_events_count > 0:
             print(f"📥 [CRONOLOGIA] Salvo {new_events_count} nuovi eventi nel file storico.")
