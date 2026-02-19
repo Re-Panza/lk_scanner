@@ -44,72 +44,106 @@ class RePanzaClient:
     @staticmethod
     def auto_login(email, password):
         print("\n🔑 [LOGIN] Inizio procedura di Login Sicuro con Playwright...")
-        with sync_playwright() as p:
-            ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-            args = ['--disable-blink-features=AutomationControlled', '--no-sandbox']
-            print("   [LOGIN] Avvio browser Chrome invisibile...")
-            browser = p.chromium.launch(headless=True, args=args)
-            
-            context = browser.new_context(
-                user_agent=ua,
-                locale='it-IT',
-                timezone_id='Europe/Rome'
-            )
-            page = context.new_page()
-            
-            try:
-                print("   [LOGIN] Mi collego alla homepage di Lords & Knights...")
-                page.goto("https://www.lordsandknights.com/", timeout=120000)
-                time.sleep(random.uniform(1.5, 3.0))
+        
+        # Inizio del ciclo dei 3 tentativi
+        for tentativo in range(1, 4):
+            print(f"   🔄 [TENTATIVO {tentativo}/3] Avvio browser Chrome invisibile...")
+            with sync_playwright() as p:
+                ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+                args = ['--disable-blink-features=AutomationControlled', '--no-sandbox']
+                browser = p.chromium.launch(headless=True, args=args)
                 
-                try: page.wait_for_selector('input[placeholder="Email"]', state="visible", timeout=10000)
-                except: print("   [LOGIN] Attesa campo email prolungata...")
-
-                print("   [LOGIN] Digito le credenziali segrete come un umano...")
-                page.type('input[placeholder="Email"]', email, delay=random.randint(50, 150))
-                time.sleep(random.uniform(0.3, 0.8))
-                page.type('input[placeholder="Password"]', password, delay=random.randint(50, 150))
-                time.sleep(random.uniform(0.5, 1.2))
-                print("   [LOGIN] Clicco sul tasto di accesso...")
+                context = browser.new_context(
+                    user_agent=ua,
+                    locale='it-IT',
+                    timezone_id='Europe/Rome'
+                )
+                page = context.new_page()
                 
-                page.locator('button:has-text("ACCESSO"), button:has-text("LOG IN")').first.click()
+                popup_gestito = False # Ci serve per capire se il while è stato interrotto apposta
                 
-                selector_mondo = page.locator(f".button-game-world--title:has-text('{WORLD_NAME}')").first
-                selector_ok = page.locator("button:has-text('OK')")
-                
-                print(f"   [LOGIN] ⏳ Attesa comparsa del mondo '{WORLD_NAME}' (Max 1 minuto)...")
-                start_time = time.time()
-                while time.time() - start_time < 60:
-                    if selector_ok.is_visible(): 
-                        try: 
-                            print("   [LOGIN] Popup OK trovato, lo chiudo.")
-                            time.sleep(random.uniform(0.5, 1.0))
-                            selector_ok.click()
-                        except: pass
-                    if selector_mondo.is_visible():
-                        try: 
-                            print(f"   [LOGIN] Tasto del mondo trovato! Entro in {WORLD_NAME}...")
-                            time.sleep(random.uniform(0.8, 1.5))
-                            selector_mondo.click(force=True)
-                        except: pass
+                try:
+                    print("   [LOGIN] Mi collego alla homepage di Lords & Knights...")
+                    page.goto("https://www.lordsandknights.com/", timeout=120000)
+                    time.sleep(random.uniform(1.5, 3.0))
                     
-                    cookies = context.cookies()
-                    if any(c['name'] == 'sessionID' for c in cookies):
-                        print(f"✅ [LOGIN] Successo! Sessione 'sessionID' rubata con successo al server.")
-                        final_cookies = context.cookies()
-                        browser.close()
-                        return RePanzaClient(final_cookies, ua)
-                    time.sleep(random.uniform(0.8, 1.3))
-                
-                print("🛑 [LOGIN] Timeout: È passato 1 minuto e il gioco non mi ha fatto entrare.")
-                try: page.screenshot(path="debug_login_error.png", full_page=True)
-                except: pass
+                    try: page.wait_for_selector('input[placeholder="Email"]', state="visible", timeout=10000)
+                    except: print("   [LOGIN] Attesa campo email prolungata...")
 
-            except Exception as e:
-                print(f"⚠️ [LOGIN] Errore critico durante la navigazione: {e}")
-            
-            browser.close()
-            return None
+                    print("   [LOGIN] Digito le credenziali segrete come un umano...")
+                    page.type('input[placeholder="Email"]', email, delay=random.randint(50, 150))
+                    time.sleep(random.uniform(0.3, 0.8))
+                    page.type('input[placeholder="Password"]', password, delay=random.randint(50, 150))
+                    time.sleep(random.uniform(0.5, 1.2))
+                    print("   [LOGIN] Clicco sul tasto di accesso...")
+                    
+                    page.locator('button:has-text("ACCESSO"), button:has-text("LOG IN")').first.click()
+                    
+                    selector_mondo = page.locator(f".button-game-world--title:has-text('{WORLD_NAME}')").first
+                    selector_ok = page.locator("button:has-text('OK')")
+                    
+                    print(f"   [LOGIN] ⏳ Attesa comparsa del mondo '{WORLD_NAME}' (Max 1 minuto)...")
+                    start_time = time.time()
+                    while time.time() - start_time < 60:
+                        
+                        # Blocco Logica Popup 30 Secondi
+                        if selector_ok.is_visible(): 
+                            print("   ⚠️ [LOGIN] Popup OK trovato! Lo premo e attendo 30 secondi esatti...")
+                            try: 
+                                selector_ok.click()
+                                time.sleep(30)
+                                popup_gestito = True
+                            except: pass
+                            
+                            # Allo scoccare dei 30 secondi verifica se il server ha risposto
+                            cookies = context.cookies()
+                            if any(c['name'] == 'sessionID' for c in cookies):
+                                print(f"✅ [LOGIN] Entrato dopo i 30 secondi di attesa! Sessione rubata al tentativo {tentativo}.")
+                                final_cookies = context.cookies()
+                                browser.close()
+                                return RePanzaClient(final_cookies, ua)
+                            else:
+                                print(f"   ❌ [LOGIN] Passati i 30 secondi, il pacchetto sessionID non c'è. Interrompo il tentativo {tentativo}.")
+                                break # Rompe il ciclo e passa alla fine per avviare il prossimo tentativo
+                        
+                        if selector_mondo.is_visible():
+                            try: 
+                                print(f"   [LOGIN] Tasto del mondo trovato! Entro in {WORLD_NAME}...")
+                                time.sleep(random.uniform(0.8, 1.5))
+                                selector_mondo.click(force=True)
+                            except: pass
+                        
+                        cookies = context.cookies()
+                        if any(c['name'] == 'sessionID' for c in cookies):
+                            print(f"✅ [LOGIN] Successo al tentativo {tentativo}! Sessione 'sessionID' rubata con successo al server.")
+                            final_cookies = context.cookies()
+                            browser.close()
+                            return RePanzaClient(final_cookies, ua)
+                        time.sleep(random.uniform(0.8, 1.3))
+                    
+                    if popup_gestito:
+                        # Ha fatto break per colpa del popup, non stampa il messaggio di timeout
+                        pass
+                    else:
+                        print(f"🛑 [LOGIN] Timeout: È passato 1 minuto e il gioco non mi ha fatto entrare al tentativo {tentativo}.")
+                        
+                    try: page.screenshot(path=f"debug_login_error_t{tentativo}.png", full_page=True)
+                    except: pass
+
+                except Exception as e:
+                    print(f"⚠️ [LOGIN] Errore critico durante la navigazione: {e}")
+                    try: page.screenshot(path=f"debug_login_error_t{tentativo}.png", full_page=True)
+                    except: pass
+                
+                # Chiude tutto e aspetta prima di riprovare
+                browser.close()
+                if tentativo < 3:
+                    print("   ⏳ Riposo qualche secondo prima del prossimo tentativo per non insospettire i server...")
+                    time.sleep(random.uniform(3.0, 5.0))
+
+        # Se arriva qui, ha esaurito tutte e 3 le vite
+        print("❌ [LOGIN] TUTTI I 3 TENTATIVI SONO FALLITI. ABBANDONO.")
+        return None
 
 def fetch_ranking(client, missing_ids="ALL"):
     session = requests.Session()
