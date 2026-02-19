@@ -309,10 +309,11 @@ def extract_hidden_ids(node, known_map, found_set):
         if hx is not None and hy is not None:
             try:
                 hid = node.get('id') or node.get('habitatID') or node.get('primaryKey')
-                if hid:
+                # --- FIX: SCARTA TUTTO CIÒ CHE NON È UN NUMERO ---
+                if hid and str(hid).isdigit():
                     key = f"{int(hx)}_{int(hy)}"
                     if key in known_map:
-                        known_map[key]['id_habitat'] = hid
+                        known_map[key]['id_habitat'] = int(hid)
                         found_set.add(key)
             except: pass
         
@@ -322,11 +323,16 @@ def extract_hidden_ids(node, known_map, found_set):
                 sub_hy = v.get('y') or v.get('mapY') or v.get('mapy')
                 if sub_hx is not None and sub_hy is not None:
                     try:
-                        sub_hid = v.get('id') or v.get('primaryKey') or k
-                        key = f"{int(sub_hx)}_{int(sub_hy)}"
-                        if key in known_map:
-                            known_map[key]['id_habitat'] = sub_hid
-                            found_set.add(key)
+                        sub_hid = v.get('id') or v.get('primaryKey')
+                        if not sub_hid or not str(sub_hid).isdigit():
+                            sub_hid = k # Fallback alla chiave del dizionario
+                        
+                        # --- FIX: CONTROLLO DI FERRO SUL FALLBACK ---
+                        if sub_hid and str(sub_hid).isdigit(): 
+                            key = f"{int(sub_hx)}_{int(sub_hy)}"
+                            if key in known_map:
+                                known_map[key]['id_habitat'] = int(sub_hid)
+                                found_set.add(key)
                     except: pass
             extract_hidden_ids(v, known_map, found_set)
             
@@ -372,8 +378,11 @@ def enrich_with_habitat_ids(client, temp_map, castelli_senza_id):
                 found_in_this_request = set()
                 extract_hidden_ids(data, temp_map, found_in_this_request)
                 habitat_trovati += len(found_in_this_request)
-                print(f"      ✔️ Estratti {len(found_in_this_request)} chiavi primarie!")
-        except Exception: 
+                print(f"      ✔️ Estratti {len(found_in_this_request)} chiavi primarie valide!")
+            else:
+                print(f"      ❌ Il server ha risposto con Errore HTTP {res.status_code}")
+        except Exception as e: 
+            print(f"      ❌ ERRORE DI LETTURA: Server ha inviato dati non validi ({e})")
             pass
 
     print(f"🎯 [ID SEGRETI] Finito! Aggiunti {habitat_trovati} nuovi HabitatID nel database.")
@@ -423,7 +432,6 @@ def run_inactivity_check(data):
 def run_history_check(old_db_list, new_db_list, history_file):
     print("\n🕰️ [CRONOLOGIA] Verifico chi ha cambiato bandiera o nome...")
     
-    # --- NUOVA STRUTTURA: STORICO A DIZIONARIO ---
     history = {}
     if os.path.exists(history_file):
         try:
@@ -432,7 +440,6 @@ def run_history_check(old_db_list, new_db_list, history_file):
                 if isinstance(loaded_data, dict):
                     history = loaded_data
                 elif isinstance(loaded_data, list):
-                    # MIGRAZIONE AUTOMATICA: Raggruppa i vecchi dati sparsi per PlayerID
                     print("   🔄 [MIGRAZIONE] Rilevato vecchio formato lista. Converto in cartelle anagrafiche...")
                     for ev in loaded_data:
                         pid = str(ev.get('p'))
@@ -496,14 +503,12 @@ def run_history_check(old_db_list, new_db_list, history_file):
                 }
                 print(f"   📜 [EVENTO] Il Giocatore {pid} ha cambiato alleanza da {old_ally} a {new_ally}")
             
-            # SE C'È UN EVENTO, LO AGGIUNGE NELLA CARTELLA PERSONALE DEL GIOCATORE
             if event_to_add:
                 str_pid = str(pid)
                 if str_pid not in history:
                     history[str_pid] = []
                 history[str_pid].append(event_to_add)
                 
-                # Tiene memoria solo degli ultimi 50 movimenti per giocatore
                 if len(history[str_pid]) > 50:
                     history[str_pid] = history[str_pid][-50:]
                 
@@ -530,9 +535,19 @@ def run_unified_scanner():
     old_known_alliances = {}
     
     with open(FILE_DATABASE, 'r') as f:
-        print(f"📥 Sto caricando il vecchio database '{FILE_DATABASE}' nella memoria temporanea...")
+        print(f"📥 Sto caricando il vecchio database '{FILE_DATABASE}' nella memoria temporanea e pulendo eventuali errori...")
         for entry in json.load(f): 
+            
+            # --- FIX ANTIVIRUS: PULIZIA ERRORI "Origin" O TESTI STRANI ---
+            if 'id_habitat' in entry:
+                if not str(entry['id_habitat']).isdigit():
+                    del entry['id_habitat'] # Cancella l'errore per farlo cercare di nuovo pulito
+                else:
+                    entry['id_habitat'] = int(entry['id_habitat'])
+            # --------------------------------------------------------------
+
             temp_map[f"{entry['x']}_{entry['y']}"] = entry
+            
             if entry.get('p') and entry.get('pn') and entry.get('pn') != "Sconosciuto":
                 old_known_players[entry['p']] = entry['pn']
             if entry.get('a') and entry.get('an'):
