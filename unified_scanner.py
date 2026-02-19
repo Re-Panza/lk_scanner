@@ -303,40 +303,60 @@ def process_tile_public(x, y, session, tmp_map):
 
 def extract_hidden_ids(node, known_map, found_set):
     if isinstance(node, dict):
+        # Controllo classico
         hx = node.get('x') or node.get('mapX') or node.get('mapx')
         hy = node.get('y') or node.get('mapY') or node.get('mapy')
         
         if hx is not None and hy is not None:
-            try:
-                hid = node.get('id') or node.get('habitatID') or node.get('primaryKey')
-                # --- FIX: SCARTA TUTTO CIÒ CHE NON È UN NUMERO ---
-                if hid and str(hid).isdigit():
-                    key = f"{int(hx)}_{int(hy)}"
-                    if key in known_map:
-                        known_map[key]['id_habitat'] = int(hid)
-                        found_set.add(key)
-            except: pass
+            hid = node.get('id') or node.get('habitatID') or node.get('primaryKey')
+            if hid and str(hid).isdigit():
+                key = f"{int(hx)}_{int(hy)}"
+                if key in known_map:
+                    known_map[key]['id_habitat'] = int(hid)
+                    found_set.add(key)
         
+        # Controllo nidificato con fallback
         for k, v in node.items():
             if isinstance(v, dict):
                 sub_hx = v.get('x') or v.get('mapX') or v.get('mapx')
                 sub_hy = v.get('y') or v.get('mapY') or v.get('mapy')
                 if sub_hx is not None and sub_hy is not None:
-                    try:
-                        sub_hid = v.get('id') or v.get('primaryKey')
-                        if not sub_hid or not str(sub_hid).isdigit():
-                            sub_hid = k # Fallback alla chiave del dizionario
-                        
-                        # --- FIX: CONTROLLO DI FERRO SUL FALLBACK ---
-                        if sub_hid and str(sub_hid).isdigit(): 
-                            key = f"{int(sub_hx)}_{int(sub_hy)}"
-                            if key in known_map:
-                                known_map[key]['id_habitat'] = int(sub_hid)
-                                found_set.add(key)
-                    except: pass
+                    sub_hid = v.get('id') or v.get('primaryKey')
+                    if not sub_hid or not str(sub_hid).isdigit():
+                        sub_hid = k # Fallback intelligente
+                    if sub_hid and str(sub_hid).isdigit():
+                        key = f"{int(sub_hx)}_{int(sub_hy)}"
+                        if key in known_map:
+                            known_map[key]['id_habitat'] = int(sub_hid)
+                            found_set.add(key)
             extract_hidden_ids(v, known_map, found_set)
             
     elif isinstance(node, list):
+        # --- NUOVO MOTORE: MEMORIA SEQUENZIALE PER I DIZIONARI SPEZZATI ---
+        last_hx, last_hy = None, None
+        for item in node:
+            if isinstance(item, dict):
+                hx = item.get('x') or item.get('mapX') or item.get('mapx')
+                hy = item.get('y') or item.get('mapY') or item.get('mapy')
+                
+                # Se trova coordinate, se le ricorda
+                if hx is not None and hy is not None:
+                    last_hx, last_hy = hx, hy
+                
+                # Se trova un ID valido
+                hid = item.get('id') or item.get('habitatID') or item.get('primaryKey')
+                if hid and str(hid).isdigit():
+                    # Abbina l'ID alle coordinate appena trovate (o passate poco prima)
+                    use_hx = hx if hx is not None else last_hx
+                    use_hy = hy if hy is not None else last_hy
+                    
+                    if use_hx is not None and use_hy is not None:
+                        key = f"{int(use_hx)}_{int(use_hy)}"
+                        if key in known_map:
+                            known_map[key]['id_habitat'] = int(hid)
+                            found_set.add(key)
+        
+        # Continua la scansione in profondità
         for item in node:
             extract_hidden_ids(item, known_map, found_set)
 
@@ -380,10 +400,9 @@ def enrich_with_habitat_ids(client, temp_map, castelli_senza_id):
                 habitat_trovati += len(found_in_this_request)
                 print(f"      ✔️ Estratti {len(found_in_this_request)} chiavi primarie valide!")
             else:
-                print(f"      ❌ Il server ha risposto con Errore HTTP {res.status_code}")
+                print(f"      ❌ Errore HTTP {res.status_code} dal server.")
         except Exception as e: 
-            print(f"      ❌ ERRORE DI LETTURA: Server ha inviato dati non validi ({e})")
-            pass
+            print(f"      ❌ Errore di decodifica durante l'ispezione: {e}")
 
     print(f"🎯 [ID SEGRETI] Finito! Aggiunti {habitat_trovati} nuovi HabitatID nel database.")
 
@@ -538,13 +557,13 @@ def run_unified_scanner():
         print(f"📥 Sto caricando il vecchio database '{FILE_DATABASE}' nella memoria temporanea e pulendo eventuali errori...")
         for entry in json.load(f): 
             
-            # --- FIX ANTIVIRUS: PULIZIA ERRORI "Origin" O TESTI STRANI ---
+            # --- ANTIVIRUS: PULIZIA ERRORI "Origin" O TESTI STRANI ---
             if 'id_habitat' in entry:
                 if not str(entry['id_habitat']).isdigit():
-                    del entry['id_habitat'] # Cancella l'errore per farlo cercare di nuovo pulito
+                    del entry['id_habitat'] 
                 else:
                     entry['id_habitat'] = int(entry['id_habitat'])
-            # --------------------------------------------------------------
+            # ---------------------------------------------------------
 
             temp_map[f"{entry['x']}_{entry['y']}"] = entry
             
