@@ -412,81 +412,75 @@ def enrich_db_with_names(db, player_map, alliance_map):
     count_updated = 0
     for key, record in db.items():
         pid = record.get('p')
-        
-        # --- GESTIONE GIOCATORE CON FIX FANTASMI ---
         if pid and pid != 0:
             nome_nuovo = player_map.get(pid, "Sconosciuto")
-            if 'pn' not in record or record['pn'] != nome_nuovo:
+            if 'pn' not in record or record['pn'] == "Sconosciuto" or (record['pn'] != nome_nuovo and nome_nuovo != "Sconosciuto"):
                  record['pn'] = nome_nuovo
                  count_updated += 1
-        else:
-            if record.get('pn') != "Sconosciuto":
-                record['pn'] = "Sconosciuto"
-                count_updated += 1
                  
-        # --- GESTIONE ALLEANZA CON FIX FANTASMI ---
         aid = record.get('a')
         if aid and aid != 0:
             nome_alleanza = alliance_map.get(aid, "")
-            if 'an' not in record or record['an'] != nome_alleanza:
+            if 'an' not in record or record['an'] == "" or (record['an'] != nome_alleanza and nome_alleanza != ""):
                  record['an'] = nome_alleanza
-        else:
-            if record.get('an') != "":
-                record['an'] = ""
-
-    print(f"♻️ [UNIONE DATI] Perfetto, i nomi di giocatori e alleanze sono stati applicati/puliti su {count_updated} castelli nel database.")
+                 
+    print(f"♻️ [UNIONE DATI] Perfetto, i nomi di giocatori e alleanze sono stati applicati su {count_updated} castelli nel database.")
     return db
 
+
 def run_inactivity_check(data):
-    print("\n⏳ [INATTIVITÀ] Calcolo chi sta giocando e chi sta dormendo (Analisi Globale Account)...")
+    print("\n⏳ [INATTIVITÀ] Calcolo chi sta giocando e chi sta dormendo (basato su TUTTI i possedimenti)...")
     
     player_last_active = {}
     
-    # FASE 1: Trovo l'ultimo segno di vita per ogni giocatore
     for key, h in data.items():
         p = h.get('p')
         if not p or p == 0: continue
         
-        firma = f"{h.get('pn', 'Sconosciuto')}|{h.get('a', 0)}|{h['n']}|{h['pt']}"
+        firma_attuale = f"{h.get('pn', 'Sconosciuto')}|{h.get('a', 0)}|{h['n']}|{h['pt']}"
         h['d'] = int(h['d'])
         
-        if 'u' not in h or h.get('f') != firma:
-            ultimo_movimento = h['d']
+        if h.get('f') != firma_attuale or 'u' not in h:
+            ultimo_mov_castello = h['d']
         else:
-            ultimo_movimento = int(h['u'])
+            ultimo_mov_castello = int(h['u'])
             
-        if p not in player_last_active or ultimo_movimento > player_last_active[p]:
-            player_last_active[p] = ultimo_movimento
+        if p not in player_last_active:
+            player_last_active[p] = ultimo_mov_castello
+        else:
+            if ultimo_mov_castello > player_last_active[p]:
+                player_last_active[p] = ultimo_mov_castello
 
-    # FASE 2: Applico lo stato di inattività a tutti i castelli
     inattivi_trovati = 0
     for key, h in data.items():
         p = h.get('p')
         if not p or p == 0: continue
         
-        firma = f"{h.get('pn', 'Sconosciuto')}|{h.get('a', 0)}|{h['n']}|{h['pt']}"
+        firma_attuale = f"{h.get('pn', 'Sconosciuto')}|{h.get('a', 0)}|{h['n']}|{h['pt']}"
         
-        if 'u' not in h or h.get('f') != firma:
+        if h.get('f') != firma_attuale or 'u' not in h:
             h['u'] = h['d']
-            h['f'] = firma
+            h['f'] = firma_attuale
         
-        # Sottrae il timestamp globale del giocatore da quello attuale
         secondi_fermo_giocatore = h['d'] - player_last_active[p]
         
-        if secondi_fermo_giocatore >= 86400: 
+        if secondi_fermo_giocatore >= 86400: # 24 ore
             h['i'] = True
+            h['ig'] = secondi_fermo_giocatore // 86400 # <-- Aggiunto il calcolo esatto dei giorni di inattività
             inattivi_trovati += 1
         else:
             h['i'] = False
-            
+            h['ig'] = 0 # <-- Azzera il contatore giorni se attivo
+
     print(f"🛌 [INATTIVITÀ] Analisi completata: {inattivi_trovati} castelli appartengono a giocatori inattivi da più di 24 ore.")
     return data
+
 
 def run_history_check(old_db_list, new_db_list, history_file):
     print("\n🕰️ [CRONOLOGIA] Verifico chi ha cambiato bandiera o nome...")
     
     history = {}
-    needs_saving = False  
+    needs_saving = False 
     
     if os.path.exists(history_file):
         try:
@@ -503,18 +497,19 @@ def run_history_check(old_db_list, new_db_list, history_file):
                     needs_saving = True 
         except: pass
 
+    # Evita i "finti abbandoni" ignorando i castelli senza alleanza se ne esiste già uno con alleanza
     last_known = {}
     for h in old_db_list:
         pid = h.get('p')
         if pid and pid != 0:
-            if pid not in last_known:
+            if pid not in last_known or (last_known[pid]['a'] == 0 and h.get('a', 0) != 0) or (last_known[pid]['n'] == "Sconosciuto" and h.get('pn', "Sconosciuto") != "Sconosciuto"):
                 last_known[pid] = {'n': h.get('pn', 'Sconosciuto'), 'a': h.get('a', 0), 'an': h.get('an', '')}
 
     current_known = {}
     for h in new_db_list:
         pid = h.get('p')
         if pid and pid != 0:
-            if pid not in current_known:
+            if pid not in current_known or (current_known[pid]['a'] == 0 and h.get('a', 0) != 0) or (current_known[pid]['n'] == "Sconosciuto" and h.get('pn', "Sconosciuto") != "Sconosciuto"):
                 current_known[pid] = {'n': h.get('pn', 'Sconosciuto'), 'a': h.get('a', 0), 'an': h.get('an', '')}
 
     now = int(time.time())
@@ -534,10 +529,13 @@ def run_history_check(old_db_list, new_db_list, history_file):
 
             event_to_add = None
 
+            # DENORMALIZZAZIONE: Salvo "pn" e "an" direttamente nell'evento!
             if name_changed and ally_changed:
                 event_to_add = {
                     "type": "name_and_alliance", 
                     "p": pid, 
+                    "pn": new_name,
+                    "an": new_data['an'],
                     "old_name": old_name, 
                     "new_name": new_name, 
                     "old_ally": old_ally, 
@@ -549,12 +547,12 @@ def run_history_check(old_db_list, new_db_list, history_file):
                 print(f"   📜 [EVENTO DOPPIO] Il Giocatore {pid} ha cambiato NOME (da '{old_name}' a '{new_name}') e ALLEANZA (da {old_ally} a {new_ally})")
             
             elif name_changed:
-                event_to_add = {"type": "name", "p": pid, "old": old_name, "new": new_name, "d": now}
+                event_to_add = {"type": "name", "p": pid, "pn": new_name, "an": new_data['an'], "old": old_name, "new": new_name, "d": now}
                 print(f"   📜 [EVENTO] Il Giocatore {pid} ha cambiato nome da '{old_name}' a '{new_name}'")
             
             elif ally_changed:
                 event_to_add = {
-                    "type": "alliance", "p": pid, "old": old_ally, "new": new_ally, 
+                    "type": "alliance", "p": pid, "pn": new_name, "an": new_data['an'], "old": old_ally, "new": new_ally, 
                     "old_name": old_data['an'], "new_name": new_data['an'], "d": now
                 }
                 print(f"   📜 [EVENTO] Il Giocatore {pid} ha cambiato alleanza da {old_ally} a {new_ally}")
@@ -563,10 +561,12 @@ def run_history_check(old_db_list, new_db_list, history_file):
                 str_pid = str(pid)
                 if str_pid not in history:
                     history[str_pid] = []
-                history[str_pid].append(event_to_add)
+                    
+                # Inserisco all'inizio (il più recente in alto)
+                history[str_pid].insert(0, event_to_add)
                 
                 if len(history[str_pid]) > 50:
-                    history[str_pid] = history[str_pid][-50:]
+                    history[str_pid] = history[str_pid][:50]
                 
                 new_events_count += 1
                 needs_saving = True
@@ -599,7 +599,6 @@ def run_unified_scanner():
         print(f"📥 Sto caricando il vecchio database '{FILE_DATABASE}' nella memoria temporanea e pulendo eventuali errori...")
         for entry in json.load(f): 
             
-            # --- ANTIVIRUS ID ---
             if 'id_habitat' in entry:
                 if not str(entry['id_habitat']).isdigit():
                     del entry['id_habitat'] 
@@ -700,53 +699,41 @@ def run_unified_scanner():
             print(f"🛑 Mi fermo: Ho scansionato 3 anelli vuoti, la mappa è sicuramente finita.")
             break
 
-    missing_p = set()
-    missing_a = set()
-    for entry in temp_map.values():
-        p = entry.get('p', 0)
-        a = entry.get('a', 0)
-        if p != 0 and p not in old_known_players: missing_p.add(p)
-        if a != 0 and a not in old_known_alliances: missing_a.add(a)
-
-    castelli_senza_id = {k: v for k, v in temp_map.items() if 'id_habitat' not in v}
-    is_full_scan = (len(old_db_list) == 0)
-
-    if not is_full_scan and not missing_p and not missing_a and not castelli_senza_id:
-        print("\n⚡ NESSUN NUOVO GIOCATORE O CASTELLO RILEVATO.")
-        print("⏩ Salto completamente la Fase di Login e le Classifiche per risparmiare tempo!")
-        temp_map = enrich_db_with_names(temp_map, old_known_players, old_known_alliances)
-        
+    # FILTRO ID: Cerca la chiave primaria solo se il castello NON è libero (p != 0)
+    castelli_senza_id = {k: v for k, v in temp_map.items() if 'id_habitat' not in v and v.get('p', 0) != 0}
+    
+    print("\n=====================================================")
+    print("🔐 FASE 3: ACCESSO GIOCO, CLASSIFICHE E DATI SEGRETI")
+    print("=====================================================")
+    
+    # Rimosso il bypass: Il bot si logga SEMPRE per poter scaricare la classifica e scovare i cambi nome
+    EMAIL = os.getenv("LK_EMAIL")
+    PASSWORD = os.getenv("LK_PASSWORD")
+    
+    client = None
+    if EMAIL and PASSWORD:
+        client = RePanzaClient.auto_login(EMAIL, PASSWORD)
     else:
-        print("\n=====================================================")
-        print("🔐 FASE 3: ACCESSO GIOCO E RICERCA DATI SEGRETI")
-        print("=====================================================")
-        EMAIL = os.getenv("LK_EMAIL")
-        PASSWORD = os.getenv("LK_PASSWORD")
+        print("⚠️ LK_EMAIL o LK_PASSWORD mancanti nei Secrets di GitHub. Salto il login.")
+    
+    if client:
+        # Forza la lettura completa della classifica per rilevare tutti i cambi nome
+        new_players = fetch_ranking(client, "ALL")
+        new_alliances = fetch_alliance_ranking(client, "ALL")
         
-        client = None
-        if EMAIL and PASSWORD:
-            client = RePanzaClient.auto_login(EMAIL, PASSWORD)
-        else:
-            print("⚠️ LK_EMAIL o LK_PASSWORD mancanti nei Secrets di GitHub. Salto il login.")
+        combined_players = {**old_known_players, **new_players}
+        combined_alliances = {**old_known_alliances, **new_alliances}
         
-        if client:
-            p_arg = "ALL" if is_full_scan else missing_p
-            a_arg = "ALL" if is_full_scan else missing_a
-            
-            new_players = fetch_ranking(client, p_arg)
-            new_alliances = fetch_alliance_ranking(client, a_arg)
-            
-            combined_players = {**old_known_players, **new_players}
-            combined_alliances = {**old_known_alliances, **new_alliances}
-            
-            temp_map = enrich_db_with_names(temp_map, combined_players, combined_alliances)
-            
-            if castelli_senza_id:
-                print(f"\n⚠️ Ho rilevato {len(castelli_senza_id)} nuovi castelli a cui manca la chiave primaria.")
-                enrich_with_habitat_ids(client, temp_map, castelli_senza_id)
-        else:
-            print("❌ Login non riuscito. Non posso né scaricare i nomi, né cercare i nuovi ID Habitat.")
-            send_telegram_alert(WORLD_NAME)
+        temp_map = enrich_db_with_names(temp_map, combined_players, combined_alliances)
+        
+        if castelli_senza_id:
+            print(f"\n⚠️ Ho rilevato {len(castelli_senza_id)} castelli occupati a cui manca la chiave primaria.")
+            enrich_with_habitat_ids(client, temp_map, castelli_senza_id)
+    else:
+        print("❌ Login non riuscito. Non posso scaricare i nomi aggiornati.")
+        send_telegram_alert(WORLD_NAME)
+        # Se il login fallisce (es. server gioco down), applica i vecchi nomi noti per non lasciare tutto su "Sconosciuto"
+        temp_map = enrich_db_with_names(temp_map, old_known_players, old_known_alliances)
 
     print("\n=====================================================")
     print("💾 FASE 4: ELABORAZIONI FINALI E SALVATAGGIO")
@@ -758,6 +745,9 @@ def run_unified_scanner():
     
     print("🧹 Pulizia database: Elimino i castelli spariti dalla mappa da più di 3 giorni...")
     final_list = [v for v in temp_map.values() if v['d'] > (time.time() - 259200)]
+    
+    # Ordina i record dal più giovane al più vecchio
+    final_list.sort(key=lambda x: int(x.get('u', x.get('d', 0))), reverse=True)
     
     print(f"📦 Compressione e scrittura nel file {FILE_DATABASE}...")
     with open(FILE_DATABASE, 'w', encoding='utf-8') as f:
