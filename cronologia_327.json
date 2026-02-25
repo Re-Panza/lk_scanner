@@ -1,1 +1,24 @@
-{}
+{
+  "881": [
+    {
+      "type": "name",
+      "p": 881,
+      "pn": "\u269c\ufe0f\ud83d\udca0ROIDAN\ud83d\udca0\u269c\ufe0f",
+      "an": "\ud83c\uddee\ud83c\uddf9REGNO UNITO\ud83c\uddee\ud83c\uddf9",
+      "old": "\u2694\ufe0f\u2660\ufe0fRoidan\ud83d\udee1\u2694\ufe0f",
+      "new": "\u269c\ufe0f\ud83d\udca0ROIDAN\ud83d\udca0\u269c\ufe0f",
+      "d": 1772060709
+    }
+  ],
+  "438": [
+    {
+      "type": "name",
+      "p": 438,
+      "pn": "\u269c\ufe0f\ud83d\udca0Kappa\ud83d\udca0\u269c\ufe0f",
+      "an": "\ud83c\uddee\ud83c\uddf9REGNO UNITO\ud83c\uddee\ud83c\uddf9",
+      "old": "Guest di Kappa",
+      "new": "\u269c\ufe0f\ud83d\udca0Kappa\ud83d\udca0\u269c\ufe0f",
+      "d": 1772060709
+    }
+  ]
+}
