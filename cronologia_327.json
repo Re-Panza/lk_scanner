@@ -20,5 +20,18 @@
       "new": "\u269c\ufe0f\ud83d\udca0Kappa\ud83d\udca0\u269c\ufe0f",
       "d": 1772060709
     }
+  ],
+  "7545": [
+    {
+      "type": "alliance",
+      "p": 7545,
+      "pn": "T-MAX",
+      "an": "Ewewe2w",
+      "old": 0,
+      "new": 217,
+      "old_name": "",
+      "new_name": "Ewewe2w",
+      "d": 1772212136
+    }
   ]
 }
